@@ -7,6 +7,7 @@ export interface CurrentContext {
   userId: string;
   companyId: string;
   companyName: string;
+  companyType: string;
   companyRelationshipId: string | null;
   relationshipName: string | null;
   designationId: string;
@@ -50,6 +51,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             userId: firstAssignment.userId,
             companyId: firstAssignment.companyId,
             companyName: firstAssignment.company.companyName,
+            companyType: firstAssignment.company.companyType,
             companyRelationshipId: firstAssignment.companyRelationshipId,
             relationshipName: firstAssignment.companyRelationship
               ? `${firstAssignment.companyRelationship.fromCompany.companyName} ↔ ${firstAssignment.companyRelationship.toCompany.companyName}`

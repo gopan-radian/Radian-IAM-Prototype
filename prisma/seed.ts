@@ -1,5 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { config } from 'dotenv';
+import path from 'path';
+
+// Load .env.local
+config({ path: path.resolve(__dirname, '../.env.local') });
 
 const prisma = new PrismaClient();
 
@@ -617,6 +622,182 @@ async function main() {
   }
 
   console.log(`✅ Created ${assignments.length} user company assignments`);
+
+  // ==================== DEAL TYPES & PHASES ====================
+  const dealTypes = {
+    promotion: await prisma.dealType.upsert({
+      where: { dealTypeId: 'deal-type-promo' },
+      update: {},
+      create: {
+        dealTypeId: 'deal-type-promo',
+        dealTypeName: 'PROMOTION',
+        dealTypeDescription: 'Promotional deals and discounts',
+      },
+    }),
+    purchaseOrder: await prisma.dealType.upsert({
+      where: { dealTypeId: 'deal-type-po' },
+      update: {},
+      create: {
+        dealTypeId: 'deal-type-po',
+        dealTypeName: 'PURCHASE_ORDER',
+        dealTypeDescription: 'Standard purchase orders',
+      },
+    }),
+    contract: await prisma.dealType.upsert({
+      where: { dealTypeId: 'deal-type-contract' },
+      update: {},
+      create: {
+        dealTypeId: 'deal-type-contract',
+        dealTypeName: 'CONTRACT',
+        dealTypeDescription: 'Long-term contracts and agreements',
+      },
+    }),
+  };
+
+  console.log(`✅ Created ${Object.keys(dealTypes).length} deal types`);
+
+  // Create phases for each deal type
+  const phaseDefinitions = [
+    { name: 'DRAFT', order: 1, description: 'Deal is being drafted by supplier' },
+    { name: 'PENDING_REVIEW', order: 2, description: 'Awaiting merchant review' },
+    { name: 'CHANGES_REQUESTED', order: 3, description: 'Merchant requested changes' },
+    { name: 'APPROVED', order: 4, description: 'Deal approved by merchant' },
+    { name: 'REJECTED', order: 5, description: 'Deal rejected by merchant' },
+    { name: 'IN_PROGRESS', order: 6, description: 'Deal is being executed' },
+    { name: 'COMPLETED', order: 7, description: 'Deal completed successfully' },
+  ];
+
+  for (const dealType of Object.values(dealTypes)) {
+    for (const phase of phaseDefinitions) {
+      await prisma.dealPhase.upsert({
+        where: {
+          dealPhaseId: `${dealType.dealTypeId}-${phase.name.toLowerCase()}`,
+        },
+        update: {},
+        create: {
+          dealPhaseId: `${dealType.dealTypeId}-${phase.name.toLowerCase()}`,
+          dealTypeId: dealType.dealTypeId,
+          phaseName: phase.name,
+          phaseOrder: phase.order,
+          phaseDescription: phase.description,
+        },
+      });
+    }
+  }
+
+  console.log(`✅ Created ${Object.keys(dealTypes).length * phaseDefinitions.length} deal phases`);
+
+  // ==================== SAMPLE DEALS ====================
+  const sampleDeals = [
+    {
+      id: 'deal-001',
+      number: 'DEAL-00001',
+      typeId: dealTypes.promotion.dealTypeId,
+      phaseId: `${dealTypes.promotion.dealTypeId}-pending_review`,
+      relationshipId: relationships.ftm_coke.companyRelationshipId,
+      ownerId: companies.coke.companyId,
+      counterpartyId: companies.freshthyme.companyId,
+      title: 'Summer Beverage Promotion 2024',
+      description: '20% discount on all Coca-Cola products for summer season',
+      amount: 50000,
+      createdBy: users.lisa.userId,
+    },
+    {
+      id: 'deal-002',
+      number: 'DEAL-00002',
+      typeId: dealTypes.purchaseOrder.dealTypeId,
+      phaseId: `${dealTypes.purchaseOrder.dealTypeId}-draft`,
+      relationshipId: relationships.ftm_belvita.companyRelationshipId,
+      ownerId: companies.belvita.companyId,
+      counterpartyId: companies.freshthyme.companyId,
+      title: 'Q1 Breakfast Bars Order',
+      description: 'Bulk order for Belvita breakfast bars',
+      amount: 25000,
+      createdBy: users.bob.userId,
+    },
+    {
+      id: 'deal-003',
+      number: 'DEAL-00003',
+      typeId: dealTypes.promotion.dealTypeId,
+      phaseId: `${dealTypes.promotion.dealTypeId}-approved`,
+      relationshipId: relationships.kroger_coke.companyRelationshipId,
+      ownerId: companies.coke.companyId,
+      counterpartyId: companies.kroger.companyId,
+      title: 'Holiday Special - Kroger',
+      description: 'Special holiday pricing for Kroger stores',
+      amount: 75000,
+      createdBy: users.david.userId,
+    },
+    {
+      id: 'deal-004',
+      number: 'DEAL-00004',
+      typeId: dealTypes.promotion.dealTypeId,
+      phaseId: `${dealTypes.promotion.dealTypeId}-changes_requested`,
+      relationshipId: relationships.ftm_coke.companyRelationshipId,
+      ownerId: companies.coke.companyId,
+      counterpartyId: companies.freshthyme.companyId,
+      title: 'New Product Launch - Coke Zero Sugar',
+      description: 'Launch promotion for new Coke Zero Sugar variant',
+      amount: 35000,
+      createdBy: users.mike.userId,
+    },
+  ];
+
+  for (const deal of sampleDeals) {
+    await prisma.deal.upsert({
+      where: { dealId: deal.id },
+      update: {},
+      create: {
+        dealId: deal.id,
+        dealNumber: deal.number,
+        dealTypeId: deal.typeId,
+        currentPhaseId: deal.phaseId,
+        companyRelationshipId: deal.relationshipId,
+        ownerCompanyId: deal.ownerId,
+        counterpartyCompanyId: deal.counterpartyId,
+        dealTitle: deal.title,
+        dealDescription: deal.description,
+        dealAmount: deal.amount,
+        dealCurrency: 'USD',
+        createdByUserId: deal.createdBy,
+      },
+    });
+
+    // Add creator as participant
+    await prisma.dealParticipant.upsert({
+      where: {
+        dealId_userId_companyId: {
+          dealId: deal.id,
+          userId: deal.createdBy,
+          companyId: deal.ownerId,
+        },
+      },
+      update: {},
+      create: {
+        dealId: deal.id,
+        userId: deal.createdBy,
+        companyId: deal.ownerId,
+        participantRole: 'OWNER',
+      },
+    });
+
+    // Create history entry
+    await prisma.dealHistory.upsert({
+      where: { dealHistoryId: `${deal.id}-created` },
+      update: {},
+      create: {
+        dealHistoryId: `${deal.id}-created`,
+        dealId: deal.id,
+        actionType: 'CREATED',
+        newPhaseId: deal.phaseId,
+        changedByUserId: deal.createdBy,
+        changedByCompanyId: deal.ownerId,
+        changeDescription: `Deal created: ${deal.title}`,
+      },
+    });
+  }
+
+  console.log(`✅ Created ${sampleDeals.length} sample deals`);
 
   console.log('\n🎉 Seeding complete!\n');
   console.log('📋 TEST USERS (all passwords: "password123"):');

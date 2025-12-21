@@ -26,6 +26,7 @@ export function ContextSwitcher() {
       userId: assignment.userId,
       companyId: assignment.companyId,
       companyName: assignment.company.companyName,
+      companyType: assignment.company.companyType,
       companyRelationshipId: assignment.companyRelationshipId,
       relationshipName: assignment.companyRelationship
         ? `${assignment.companyRelationship.fromCompany.companyName} ↔ ${assignment.companyRelationship.toCompany.companyName}`
