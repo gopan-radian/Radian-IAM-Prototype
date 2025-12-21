@@ -284,3 +284,182 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_log")
 }
+
+// ==================== INVITATIONS ====================
+
+model Invitation {
+  invitationId                String   @id @default(uuid()) @map("invitation_id")
+  email                       String   @map("email")
+  token                       String   @unique @map("token")
+  invitedByUserId             String   @map("invited_by_user_id")
+  companyId                   String   @map("company_id")
+  designationId               String   @map("designation_id")
+  companyRelationshipId       String?  @map("company_relationship_id")
+  expiresAt                   DateTime @map("expires_at")
+  acceptedAt                  DateTime? @map("accepted_at")
+  invitationStatus            String   @default("PENDING") @map("invitation_status") // PENDING | ACCEPTED | EXPIRED | REVOKED
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@index([token])
+  @@index([companyId])
+  @@map("invitations")
+}
+
+// ==================== POLICIES (ABAC) ====================
+
+model PolicyMaster {
+  policyId                    String   @id @default(uuid()) @map("policy_id")
+  policyName                  String   @map("policy_name")
+  policyDescription           String?  @map("policy_description")
+  policyType                  String   @map("policy_type") // ALLOW | DENY
+  priority                    Int      @default(0) @map("priority") // Higher = evaluated first
+  policyStatus                String   @default("ACTIVE") @map("policy_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  conditions                  PolicyCondition[]
+  assignments                 PolicyAssignment[]
+
+  @@map("policy_master")
+}
+
+model PolicyCondition {
+  policyConditionId           String   @id @default(uuid()) @map("policy_condition_id")
+  policyId                    String   @map("policy_id")
+  attributeType               String   @map("attribute_type") // USER | COMPANY | RESOURCE | ENVIRONMENT
+  attributeKey                String   @map("attribute_key") // e.g., companyType, dealAmount, timeOfDay
+  operator                    String   @map("operator") // EQUALS | NOT_EQUALS | IN | NOT_IN | GREATER_THAN | LESS_THAN | CONTAINS
+  attributeValue              Json     @map("attribute_value") // Value to compare against
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  policy                      PolicyMaster @relation(fields: [policyId], references: [policyId], onDelete: Cascade)
+
+  @@map("policy_conditions")
+}
+
+model PolicyAssignment {
+  policyAssignmentId          String   @id @default(uuid()) @map("policy_assignment_id")
+  policyId                    String   @map("policy_id")
+  targetType                  String   @map("target_type") // COMPANY | DESIGNATION | USER | COMPANY_TYPE
+  targetId                    String   @map("target_id") // ID of target entity
+  assignmentStatus            String   @default("ACTIVE") @map("assignment_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  policy                      PolicyMaster @relation(fields: [policyId], references: [policyId], onDelete: Cascade)
+
+  @@unique([policyId, targetType, targetId])
+  @@map("policy_assignments")
+}
+
+// ==================== DEALS ====================
+
+model DealType {
+  dealTypeId                  String   @id @default(uuid()) @map("deal_type_id")
+  dealTypeName                String   @map("deal_type_name") // e.g., PURCHASE_ORDER, INVOICE, CONTRACT
+  dealTypeDescription         String?  @map("deal_type_description")
+  dealTypeStatus              String   @default("ACTIVE") @map("deal_type_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  phases                      DealPhase[]
+  deals                       Deal[]
+
+  @@map("deal_types")
+}
+
+model DealPhase {
+  dealPhaseId                 String   @id @default(uuid()) @map("deal_phase_id")
+  dealTypeId                  String   @map("deal_type_id")
+  phaseName                   String   @map("phase_name") // e.g., DRAFT, PENDING_APPROVAL, APPROVED, IN_PROGRESS, COMPLETED
+  phaseOrder                  Int      @map("phase_order")
+  phaseDescription            String?  @map("phase_description")
+  phaseStatus                 String   @default("ACTIVE") @map("phase_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  dealType                    DealType @relation(fields: [dealTypeId], references: [dealTypeId])
+  deals                       Deal[]
+
+  @@map("deal_phases")
+}
+
+model Deal {
+  dealId                      String   @id @default(uuid()) @map("deal_id")
+  dealNumber                  String   @unique @map("deal_number") // Human-readable identifier
+  dealTypeId                  String   @map("deal_type_id")
+  currentPhaseId              String   @map("current_phase_id")
+  companyRelationshipId       String   @map("company_relationship_id") // Which B2B relationship this deal belongs to
+  ownerCompanyId              String   @map("owner_company_id") // Primary company that owns/created the deal
+  counterpartyCompanyId       String   @map("counterparty_company_id") // The other company in the deal
+  dealTitle                   String   @map("deal_title")
+  dealDescription             String?  @map("deal_description")
+  dealAmount                  Decimal? @map("deal_amount") @db.Decimal(15, 2)
+  dealCurrency                String   @default("USD") @map("deal_currency")
+  startDate                   DateTime? @map("start_date")
+  endDate                     DateTime? @map("end_date")
+  dealStatus                  String   @default("ACTIVE") @map("deal_status") // ACTIVE | COMPLETED | CANCELLED | ON_HOLD
+  metadata                    Json?    @map("metadata") // Flexible field for deal-specific data
+  createdByUserId             String   @map("created_by_user_id")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  dealType                    DealType @relation(fields: [dealTypeId], references: [dealTypeId])
+  currentPhase                DealPhase @relation(fields: [currentPhaseId], references: [dealPhaseId])
+  participants                DealParticipant[]
+  history                     DealHistory[]
+
+  @@index([ownerCompanyId])
+  @@index([counterpartyCompanyId])
+  @@index([companyRelationshipId])
+  @@index([dealStatus])
+  @@index([createdAt])
+  @@map("deals")
+}
+
+model DealParticipant {
+  dealParticipantId           String   @id @default(uuid()) @map("deal_participant_id")
+  dealId                      String   @map("deal_id")
+  userId                      String   @map("user_id")
+  companyId                   String   @map("company_id") // Which company this participant represents
+  participantRole             String   @map("participant_role") // OWNER | APPROVER | VIEWER | COLLABORATOR
+  participantStatus           String   @default("ACTIVE") @map("participant_status")
+  addedAt                     DateTime @default(now()) @map("added_at")
+
+  // Relations
+  deal                        Deal @relation(fields: [dealId], references: [dealId], onDelete: Cascade)
+
+  @@unique([dealId, userId, companyId])
+  @@index([userId])
+  @@index([companyId])
+  @@map("deal_participants")
+}
+
+model DealHistory {
+  dealHistoryId               String   @id @default(uuid()) @map("deal_history_id")
+  dealId                      String   @map("deal_id")
+  actionType                  String   @map("action_type") // CREATED | PHASE_CHANGED | UPDATED | COMMENT | ATTACHMENT
+  previousPhaseId             String?  @map("previous_phase_id")
+  newPhaseId                  String?  @map("new_phase_id")
+  changedByUserId             String   @map("changed_by_user_id")
+  changedByCompanyId          String   @map("changed_by_company_id")
+  changeDescription           String?  @map("change_description")
+  previousValue               Json?    @map("previous_value")
+  newValue                    Json?    @map("new_value")
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  deal                        Deal @relation(fields: [dealId], references: [dealId], onDelete: Cascade)
+
+  @@index([dealId])
+  @@index([createdAt])
+  @@map("deal_history")
+}
