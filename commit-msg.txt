@@ -1,0 +1,8 @@
+Fix Vercel build: add prisma generate to build script, exclude seed from tsconfig
+
+- Build now runs prisma generate before next build to ensure client is up-to-date
+- Excluded prisma/seed.ts from TypeScript compilation (run manually only)
+
+Generated with Claude Code
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
