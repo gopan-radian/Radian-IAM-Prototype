@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+interface Permission {
+  permissionId: string;
+  permissionKey: string;
+  permissionDescription: string;
+  permissionCategory: string;
+  permissionStatus: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // GET - Get permissions for a specific company
 export async function GET(request: NextRequest) {
   try {
@@ -43,7 +53,7 @@ export async function GET(request: NextRequest) {
     );
 
     // Combine into a response showing which permissions are granted
-    const permissionsWithStatus = allPermissions.map((permission) => ({
+    const permissionsWithStatus = allPermissions.map((permission: Permission) => ({
       ...permission,
       isGranted: grantedPermissionIds.has(permission.permissionId),
       grantedInfo: companyPermissions.find(
