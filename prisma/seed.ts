@@ -243,6 +243,16 @@ async function main() {
     }),
   };
 
+  // Clean up any old broker-merchant relationships that shouldn't exist
+  await prisma.userCompanyAssignment.deleteMany({
+    where: {
+      companyRelationshipId: { in: ['abc-ftm-id', 'abc-kroger-id'] }
+    }
+  });
+  await prisma.companyRelationship.deleteMany({
+    where: { companyRelationshipId: { in: ['abc-ftm-id', 'abc-kroger-id'] } }
+  });
+
   console.log(`✅ Created ${Object.keys(relationships).length} company relationships`);
 
   // ==================== COMPANY AVAILABLE PERMISSIONS ====================
@@ -305,8 +315,8 @@ async function main() {
     }
   }
 
-  // KeHE gets minimal permissions (non-client)
-  const kehePermissions = ['deals.view', 'reports.view'];
+  // KeHE gets supplier permissions (non-client but still a supplier)
+  const kehePermissions = ['deals.view', 'deals.create', 'deals.edit', 'reports.view'];
   for (const key of kehePermissions) {
     const p = permissionRecords.find((p) => p.permissionKey === key);
     if (p) {
@@ -490,8 +500,8 @@ async function main() {
   // KeHE Admin
   await assignPermissionsToRole(designations.keheAdmin.designationId, kehePermissions);
 
-  // KeHE Coordinator
-  await assignPermissionsToRole(designations.keheCoordinator.designationId, ['deals.view']);
+  // KeHE Coordinator - can create and edit deals
+  await assignPermissionsToRole(designations.keheCoordinator.designationId, ['deals.view', 'deals.create', 'deals.edit']);
 
   // ABC Brokers Admin
   await assignPermissionsToRole(designations.abcAdmin.designationId, brokerPermissions);
@@ -599,6 +609,7 @@ async function main() {
     { user: users.amy, company: companies.kehe, designation: designations.keheAdmin, id: 'uca-amy' },
     { user: users.james, company: companies.kehe, designation: designations.keheCoordinator, id: 'uca-james' },
     
+    // Tom's supplier relationships - brokers represent suppliers and can manage their deals
     { user: users.tom, company: companies.abcBrokers, designation: designations.abcDealCoordinator, id: 'uca-tom-1', relationship: relationships.abc_coke },
     { user: users.tom, company: companies.abcBrokers, designation: designations.abcDealCoordinator, id: 'uca-tom-2', relationship: relationships.abc_kehe },
     { user: users.tom, company: companies.abcBrokers, designation: designations.abcDealCoordinator, id: 'uca-tom-3', relationship: relationships.abc_belvita },
@@ -624,32 +635,65 @@ async function main() {
   console.log(`✅ Created ${assignments.length} user company assignments`);
 
   // ==================== DEAL TYPES & PHASES ====================
+  // First, delete old deal types that are no longer needed
+  await prisma.dealHistory.deleteMany({
+    where: {
+      deal: {
+        dealType: {
+          dealTypeId: { in: ['deal-type-po', 'deal-type-contract', 'deal-type-promo'] }
+        }
+      }
+    }
+  });
+  await prisma.dealParticipant.deleteMany({
+    where: {
+      deal: {
+        dealType: {
+          dealTypeId: { in: ['deal-type-po', 'deal-type-contract', 'deal-type-promo'] }
+        }
+      }
+    }
+  });
+  await prisma.deal.deleteMany({
+    where: {
+      dealType: {
+        dealTypeId: { in: ['deal-type-po', 'deal-type-contract', 'deal-type-promo'] }
+      }
+    }
+  });
+  await prisma.dealPhase.deleteMany({
+    where: { dealTypeId: { in: ['deal-type-po', 'deal-type-contract', 'deal-type-promo'] } }
+  });
+  await prisma.dealType.deleteMany({
+    where: { dealTypeId: { in: ['deal-type-po', 'deal-type-contract', 'deal-type-promo'] } }
+  });
+
   const dealTypes = {
-    promotion: await prisma.dealType.upsert({
-      where: { dealTypeId: 'deal-type-promo' },
+    fundedPromotion: await prisma.dealType.upsert({
+      where: { dealTypeId: 'deal-type-funded-promo' },
       update: {},
       create: {
-        dealTypeId: 'deal-type-promo',
-        dealTypeName: 'PROMOTION',
-        dealTypeDescription: 'Promotional deals and discounts',
+        dealTypeId: 'deal-type-funded-promo',
+        dealTypeName: 'Funded Promotion',
+        dealTypeDescription: 'Supplier funds the promotion amount, merchant may contribute additional funding',
       },
     }),
-    purchaseOrder: await prisma.dealType.upsert({
-      where: { dealTypeId: 'deal-type-po' },
+    nonFundedPromotion: await prisma.dealType.upsert({
+      where: { dealTypeId: 'deal-type-non-funded-promo' },
       update: {},
       create: {
-        dealTypeId: 'deal-type-po',
-        dealTypeName: 'PURCHASE_ORDER',
-        dealTypeDescription: 'Standard purchase orders',
+        dealTypeId: 'deal-type-non-funded-promo',
+        dealTypeName: 'Non-Funded Promotion',
+        dealTypeDescription: 'Promotion fully funded by merchant, no supplier contribution',
       },
     }),
-    contract: await prisma.dealType.upsert({
-      where: { dealTypeId: 'deal-type-contract' },
+    deal: await prisma.dealType.upsert({
+      where: { dealTypeId: 'deal-type-deal' },
       update: {},
       create: {
-        dealTypeId: 'deal-type-contract',
-        dealTypeName: 'CONTRACT',
-        dealTypeDescription: 'Long-term contracts and agreements',
+        dealTypeId: 'deal-type-deal',
+        dealTypeName: 'Deal',
+        dealTypeDescription: 'General deals and agreements between supplier and merchant',
       },
     }),
   };
@@ -692,52 +736,52 @@ async function main() {
     {
       id: 'deal-001',
       number: 'DEAL-00001',
-      typeId: dealTypes.promotion.dealTypeId,
-      phaseId: `${dealTypes.promotion.dealTypeId}-pending_review`,
+      typeId: dealTypes.fundedPromotion.dealTypeId,
+      phaseId: `${dealTypes.fundedPromotion.dealTypeId}-pending_review`,
       relationshipId: relationships.ftm_coke.companyRelationshipId,
       ownerId: companies.coke.companyId,
       counterpartyId: companies.freshthyme.companyId,
       title: 'Summer Beverage Promotion 2024',
-      description: '20% discount on all Coca-Cola products for summer season',
+      description: 'Coca-Cola funded promotion - 20% discount on all products for summer season. Supplier contribution: $50,000',
       amount: 50000,
       createdBy: users.lisa.userId,
     },
     {
       id: 'deal-002',
       number: 'DEAL-00002',
-      typeId: dealTypes.purchaseOrder.dealTypeId,
-      phaseId: `${dealTypes.purchaseOrder.dealTypeId}-draft`,
+      typeId: dealTypes.nonFundedPromotion.dealTypeId,
+      phaseId: `${dealTypes.nonFundedPromotion.dealTypeId}-draft`,
       relationshipId: relationships.ftm_belvita.companyRelationshipId,
       ownerId: companies.belvita.companyId,
       counterpartyId: companies.freshthyme.companyId,
-      title: 'Q1 Breakfast Bars Order',
-      description: 'Bulk order for Belvita breakfast bars',
-      amount: 25000,
+      title: 'Belvita Breakfast Week',
+      description: 'Non-funded promotion - FreshThyme to run in-store promotion for Belvita products',
+      amount: 0,
       createdBy: users.bob.userId,
     },
     {
       id: 'deal-003',
       number: 'DEAL-00003',
-      typeId: dealTypes.promotion.dealTypeId,
-      phaseId: `${dealTypes.promotion.dealTypeId}-approved`,
+      typeId: dealTypes.fundedPromotion.dealTypeId,
+      phaseId: `${dealTypes.fundedPromotion.dealTypeId}-approved`,
       relationshipId: relationships.kroger_coke.companyRelationshipId,
       ownerId: companies.coke.companyId,
       counterpartyId: companies.kroger.companyId,
       title: 'Holiday Special - Kroger',
-      description: 'Special holiday pricing for Kroger stores',
+      description: 'Funded promotion - Special holiday pricing for Kroger stores. Supplier contribution: $75,000',
       amount: 75000,
       createdBy: users.david.userId,
     },
     {
       id: 'deal-004',
       number: 'DEAL-00004',
-      typeId: dealTypes.promotion.dealTypeId,
-      phaseId: `${dealTypes.promotion.dealTypeId}-changes_requested`,
+      typeId: dealTypes.deal.dealTypeId,
+      phaseId: `${dealTypes.deal.dealTypeId}-changes_requested`,
       relationshipId: relationships.ftm_coke.companyRelationshipId,
       ownerId: companies.coke.companyId,
       counterpartyId: companies.freshthyme.companyId,
       title: 'New Product Launch - Coke Zero Sugar',
-      description: 'Launch promotion for new Coke Zero Sugar variant',
+      description: 'General deal for new product launch coordination and shelf placement',
       amount: 35000,
       createdBy: users.mike.userId,
     },

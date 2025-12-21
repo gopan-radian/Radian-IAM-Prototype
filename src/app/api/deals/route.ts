@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
     const companyType = searchParams.get('companyType');
+    const companyRelationshipId = searchParams.get('companyRelationshipId');
 
     if (!companyId) {
       return NextResponse.json(
@@ -15,12 +16,42 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get deals where this company is either owner or counterparty
+    // Determine which company's deals to show
+    let targetCompanyId = companyId;
+    let isBrokerContext = false;
+    let brokerRelationshipType: string | null = null;
+
+    // If broker is scoped to a relationship, show deals for the target company in that relationship
+    if (companyType === 'BROKER' && companyRelationshipId) {
+      const relationship = await prisma.companyRelationship.findUnique({
+        where: { companyRelationshipId },
+        include: {
+          fromCompany: true,
+          toCompany: true,
+        },
+      });
+
+      if (relationship) {
+        brokerRelationshipType = relationship.relationshipType;
+
+        if (relationship.relationshipType === 'BROKER_SUPPLIER') {
+          // The toCompany is the supplier - show their deals (broker can create deals on their behalf)
+          targetCompanyId = relationship.toCompany.companyId;
+          isBrokerContext = true;
+        } else if (relationship.relationshipType === 'BROKER_MERCHANT') {
+          // The toCompany is the merchant - show their deals (broker can view/manage)
+          targetCompanyId = relationship.toCompany.companyId;
+          isBrokerContext = true;
+        }
+      }
+    }
+
+    // Get deals where the target company is either owner or counterparty
     const deals = await prisma.deal.findMany({
       where: {
         OR: [
-          { ownerCompanyId: companyId },
-          { counterpartyCompanyId: companyId },
+          { ownerCompanyId: targetCompanyId },
+          { counterpartyCompanyId: targetCompanyId },
         ],
         dealStatus: { not: 'DELETED' },
       },
@@ -50,14 +81,30 @@ export async function GET(request: NextRequest) {
 
     const companyMap = new Map(companies.map((c) => [c.companyId, c]));
 
+    // Determine effective company type for broker context
+    let effectiveCompanyType = companyType || '';
+    if (isBrokerContext) {
+      if (brokerRelationshipType === 'BROKER_SUPPLIER') {
+        effectiveCompanyType = 'SUPPLIER';
+      } else if (brokerRelationshipType === 'BROKER_MERCHANT') {
+        effectiveCompanyType = 'MERCHANT';
+      }
+    }
+
     const enrichedDeals = deals.map((deal) => ({
       ...deal,
       ownerCompany: companyMap.get(deal.ownerCompanyId),
       counterpartyCompany: companyMap.get(deal.counterpartyCompanyId),
-      // Determine if current company is the owner or counterparty
-      isOwner: deal.ownerCompanyId === companyId,
+      // For brokers, determine ownership based on target company
+      isOwner: isBrokerContext ? deal.ownerCompanyId === targetCompanyId : deal.ownerCompanyId === companyId,
       // Determine what actions are available based on phase and role
-      availableActions: getAvailableActions(deal, companyId, companyType || ''),
+      // Brokers can take supplier/merchant actions based on their relationship type
+      availableActions: getAvailableActions(
+        deal,
+        targetCompanyId,
+        effectiveCompanyType,
+        isBrokerContext
+      ),
     }));
 
     return NextResponse.json(enrichedDeals);
@@ -177,16 +224,17 @@ export async function POST(request: NextRequest) {
 
 function getAvailableActions(
   deal: any,
-  currentCompanyId: string,
-  companyType: string
+  targetCompanyId: string,
+  effectiveCompanyType: string,
+  isBrokerContext: boolean = false
 ): string[] {
   const actions: string[] = ['view'];
   const phaseName = deal.currentPhase?.phaseName;
-  const isOwner = deal.ownerCompanyId === currentCompanyId;
-  const isCounterparty = deal.counterpartyCompanyId === currentCompanyId;
+  const isOwner = deal.ownerCompanyId === targetCompanyId;
+  const isCounterparty = deal.counterpartyCompanyId === targetCompanyId;
 
-  // SUPPLIER created the deal - can edit in DRAFT, submit for review
-  if (isOwner) {
+  // SUPPLIER (or BROKER acting as supplier) created the deal - can edit in DRAFT, submit for review
+  if (isOwner && (effectiveCompanyType === 'SUPPLIER' || isBrokerContext)) {
     if (phaseName === 'DRAFT') {
       actions.push('edit', 'submit_for_review', 'delete');
     } else if (phaseName === 'CHANGES_REQUESTED') {
@@ -195,7 +243,7 @@ function getAvailableActions(
   }
 
   // MERCHANT reviews the deal
-  if (isCounterparty && companyType === 'MERCHANT') {
+  if (isCounterparty && effectiveCompanyType === 'MERCHANT') {
     if (phaseName === 'PENDING_REVIEW') {
       actions.push('approve', 'reject', 'request_changes');
     }

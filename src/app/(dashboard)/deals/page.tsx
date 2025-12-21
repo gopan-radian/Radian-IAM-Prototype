@@ -114,9 +114,12 @@ export default function DealsPage() {
     if (!currentContext) return;
 
     try {
-      const response = await fetch(
-        `/api/deals?companyId=${currentContext.companyId}&companyType=${currentContext.companyType}`
-      );
+      let url = `/api/deals?companyId=${currentContext.companyId}&companyType=${currentContext.companyType}`;
+      // Include relationship ID for brokers to scope to specific supplier
+      if (currentContext.companyRelationshipId) {
+        url += `&companyRelationshipId=${currentContext.companyRelationshipId}`;
+      }
+      const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch deals');
       const data = await response.json();
       setDeals(data);
@@ -146,7 +149,36 @@ export default function DealsPage() {
       if (!response.ok) throw new Error('Failed to fetch relationships');
       const data = await response.json();
 
-      // Filter to relationships where current company is involved
+      // For brokers, we need both their broker relationships AND the supplier's merchant relationships
+      const isBroker = currentContext.companyType === 'BROKER';
+
+      if (isBroker && currentContext.companyRelationshipId) {
+        // First find the broker's relationship to get the supplier
+        const brokerRelationship = data.find(
+          (r: Relationship) => r.companyRelationshipId === currentContext.companyRelationshipId
+        );
+
+        if (brokerRelationship && brokerRelationship.relationshipType === 'BROKER_SUPPLIER') {
+          const supplierId = brokerRelationship.toCompany.companyId;
+
+          // Get all relationships where this supplier is involved (to find merchants)
+          const supplierRelationships = data.filter((r: Relationship) =>
+            (r.fromCompany.companyId === supplierId || r.toCompany.companyId === supplierId) &&
+            r.relationshipType === 'MERCHANT_SUPPLIER'
+          );
+
+          // Also include the broker relationships for context
+          const brokerRelationships = data.filter((r: Relationship) =>
+            r.fromCompany.companyId === currentContext.companyId ||
+            r.toCompany.companyId === currentContext.companyId
+          );
+
+          setRelationships([...supplierRelationships, ...brokerRelationships]);
+          return;
+        }
+      }
+
+      // Default: Filter to relationships where current company is involved
       const relevantRelationships = data.filter((r: Relationship) =>
         r.fromCompany.companyId === currentContext.companyId ||
         r.toCompany.companyId === currentContext.companyId
@@ -186,9 +218,24 @@ export default function DealsPage() {
         throw new Error('Please select a valid relationship');
       }
 
-      // Determine counterparty (the other company in the relationship)
+      // For brokers, we need to get the supplier from their broker relationship context
+      let ownerCompanyId = currentContext.companyId;
+      const isBroker = currentContext.companyType === 'BROKER';
+
+      if (isBroker && currentContext.companyRelationshipId) {
+        // Find the broker's relationship to get the supplier they represent
+        const brokerRelationship = relationships.find(
+          (r) => r.companyRelationshipId === currentContext.companyRelationshipId
+        );
+        if (brokerRelationship && brokerRelationship.relationshipType === 'BROKER_SUPPLIER') {
+          // For BROKER_SUPPLIER, toCompany is the supplier
+          ownerCompanyId = brokerRelationship.toCompany.companyId;
+        }
+      }
+
+      // Determine counterparty (the merchant) from the selected relationship
       const counterpartyCompanyId =
-        relationship.fromCompany.companyId === currentContext.companyId
+        relationship.fromCompany.companyId === ownerCompanyId
           ? relationship.toCompany.companyId
           : relationship.fromCompany.companyId;
 
@@ -198,7 +245,7 @@ export default function DealsPage() {
         body: JSON.stringify({
           dealTypeId: createForm.dealTypeId,
           companyRelationshipId: createForm.companyRelationshipId,
-          ownerCompanyId: currentContext.companyId,
+          ownerCompanyId,
           counterpartyCompanyId,
           dealTitle: createForm.dealTitle,
           dealDescription: createForm.dealDescription,
@@ -293,20 +340,53 @@ export default function DealsPage() {
     return styles[action] || 'bg-gray-600 hover:bg-gray-700 text-white';
   };
 
-  // Get available merchants for supplier to create deals with
-  const getCounterpartyOptions = () => {
+  // Get available merchants for supplier/broker to create deals with
+  const getCounterpartyOptions = (): Array<{
+    relationshipId: string;
+    companyId: string;
+    companyName: string;
+    companyType: string;
+  }> => {
     if (!currentContext) return [];
 
-    return relationships.map((r) => {
-      const isFrom = r.fromCompany.companyId === currentContext.companyId;
-      const counterparty = isFrom ? r.toCompany : r.fromCompany;
-      return {
-        relationshipId: r.companyRelationshipId,
-        companyId: counterparty.companyId,
-        companyName: counterparty.companyName,
-        companyType: counterparty.companyType,
-      };
-    });
+    const isBroker = currentContext.companyType === 'BROKER';
+
+    // For brokers, get the supplier ID from their context relationship
+    let targetSupplierId = currentContext.companyId;
+    if (isBroker && currentContext.companyRelationshipId) {
+      const brokerRelationship = relationships.find(
+        (r) => r.companyRelationshipId === currentContext.companyRelationshipId
+      );
+      if (brokerRelationship && brokerRelationship.relationshipType === 'BROKER_SUPPLIER') {
+        targetSupplierId = brokerRelationship.toCompany.companyId;
+      }
+    }
+
+    // Filter to MERCHANT_SUPPLIER relationships involving the target supplier
+    const options: Array<{
+      relationshipId: string;
+      companyId: string;
+      companyName: string;
+      companyType: string;
+    }> = [];
+
+    relationships
+      .filter((r) => r.relationshipType === 'MERCHANT_SUPPLIER')
+      .forEach((r) => {
+        const isSupplierFrom = r.fromCompany.companyId === targetSupplierId;
+        const isSupplierTo = r.toCompany.companyId === targetSupplierId;
+        if (!isSupplierFrom && !isSupplierTo) return;
+
+        const counterparty = isSupplierFrom ? r.toCompany : r.fromCompany;
+        options.push({
+          relationshipId: r.companyRelationshipId,
+          companyId: counterparty.companyId,
+          companyName: counterparty.companyName,
+          companyType: counterparty.companyType,
+        });
+      });
+
+    return options;
   };
 
   if (!currentContext) {
@@ -319,6 +399,32 @@ export default function DealsPage() {
 
   const isSupplier = currentContext.companyType === 'SUPPLIER';
   const isMerchant = currentContext.companyType === 'MERCHANT';
+  const isBroker = currentContext.companyType === 'BROKER';
+
+  // Determine broker context type (supplier or merchant)
+  let brokerRelationshipType: string | null = null;
+  if (isBroker && currentContext.companyRelationshipId) {
+    const brokerRelationship = relationships.find(
+      (r) => r.companyRelationshipId === currentContext.companyRelationshipId
+    );
+    if (brokerRelationship) {
+      brokerRelationshipType = brokerRelationship.relationshipType;
+    }
+  }
+
+  const isBrokerAsSupplier = isBroker && brokerRelationshipType === 'BROKER_SUPPLIER';
+  const isBrokerAsMerchant = isBroker && brokerRelationshipType === 'BROKER_MERCHANT';
+
+  // Brokers with a SUPPLIER relationship can create deals on behalf of suppliers
+  const canCreateDeals = isSupplier || isBrokerAsSupplier;
+
+  // Get the target company name for display
+  const getTargetCompanyName = () => {
+    if (!isBroker || !currentContext.relationshipName) return null;
+    // relationshipName format is "ABC Brokers ↔ FreshThyme"
+    const parts = currentContext.relationshipName.split(' ↔ ');
+    return parts.length > 1 ? parts[1] : null;
+  };
 
   return (
     <div className="max-w-7xl">
@@ -329,11 +435,13 @@ export default function DealsPage() {
           <p className="text-gray-600 mt-1">
             {isSupplier && 'Create and manage deals with your merchant partners'}
             {isMerchant && 'Review and approve deals from your suppliers'}
-            {!isSupplier && !isMerchant && 'View and manage deals'}
+            {isBrokerAsSupplier && `Creating deals on behalf of ${getTargetCompanyName()}`}
+            {isBrokerAsMerchant && `Viewing deals for ${getTargetCompanyName()}`}
+            {!isSupplier && !isMerchant && !isBroker && 'View and manage deals'}
           </p>
         </div>
         <PermissionGate permission="deals.create">
-          {isSupplier && (
+          {canCreateDeals && (
             <button
               onClick={() => setShowCreateModal(true)}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -365,9 +473,9 @@ export default function DealsPage() {
           <FileText className="mx-auto text-gray-400 mb-4" size={48} />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No deals found</h3>
           <p className="text-gray-600">
-            {isSupplier
-              ? 'Create your first deal to get started'
-              : 'Deals will appear here when suppliers submit them for review'}
+            {canCreateDeals && 'Create your first deal to get started'}
+            {isMerchant && 'Deals will appear here when suppliers submit them for review'}
+            {isBrokerAsMerchant && `No deals found for ${getTargetCompanyName()}`}
           </p>
         </div>
       ) : (
