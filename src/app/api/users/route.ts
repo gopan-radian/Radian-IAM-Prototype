@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { canAdminAssignPermissions } from '@/lib/permissions';
 import bcrypt from 'bcryptjs';
+
+interface PermissionOverride {
+  permissionId: string;
+  effect: 'ALLOW' | 'DENY';
+  reason?: string;
+}
 
 // GET - List users (optionally filtered by company)
 export async function GET(request: NextRequest) {
@@ -68,10 +75,33 @@ export async function GET(request: NextRequest) {
 }
 
 // POST - Create a new user with company assignment
+// Supports permission overrides and returns 409 if email already exists
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { firstName, lastName, email, password, phone, companyId, designationId, companyRelationshipId } = body;
+    const {
+      firstName,
+      lastName,
+      email,
+      password,
+      phone,
+      companyId,
+      designationId,
+      companyRelationshipId,
+      permissionOverrides,
+      adminUserId,
+    } = body as {
+      firstName: string;
+      lastName: string;
+      email: string;
+      password: string;
+      phone?: string;
+      companyId: string;
+      designationId: string;
+      companyRelationshipId?: string;
+      permissionOverrides?: PermissionOverride[];
+      adminUserId?: string;
+    };
 
     // Validate required fields
     if (!firstName || !lastName || !email || !password || !companyId || !designationId) {
@@ -83,13 +113,27 @@ export async function POST(request: NextRequest) {
 
     // Check if email already exists
     const existingUser = await prisma.userMaster.findUnique({
-      where: { email },
+      where: { email: email.toLowerCase() },
+      select: {
+        userId: true,
+        firstName: true,
+        lastName: true,
+        status: true,
+      },
     });
 
     if (existingUser) {
+      // Return 409 Conflict with user info so client can use assignment endpoint
       return NextResponse.json(
-        { error: 'A user with this email already exists' },
-        { status: 400 }
+        {
+          error: 'User with this email already exists',
+          exists: true,
+          userId: existingUser.userId,
+          firstName: existingUser.firstName,
+          lastName: existingUser.lastName,
+          status: existingUser.status,
+        },
+        { status: 409 }
       );
     }
 
@@ -108,6 +152,9 @@ export async function POST(request: NextRequest) {
     // Verify designation exists and belongs to company
     const designation = await prisma.designationMaster.findUnique({
       where: { designationId },
+      include: {
+        permissions: true,
+      },
     });
 
     if (!designation || designation.companyId !== companyId) {
@@ -129,19 +176,51 @@ export async function POST(request: NextRequest) {
           { status: 404 }
         );
       }
+
+      if (relationship.fromCompanyId !== companyId && relationship.toCompanyId !== companyId) {
+        return NextResponse.json(
+          { error: 'Relationship does not involve the specified company' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // If adminUserId provided, enforce permission inheritance
+    if (adminUserId) {
+      const rolePermissionIds = designation.permissions.map((p) => p.permissionId);
+      const allowOverrideIds = (permissionOverrides || [])
+        .filter((o) => o.effect === 'ALLOW')
+        .map((o) => o.permissionId);
+      const allPermissionIds = [...rolePermissionIds, ...allowOverrideIds];
+
+      const { allowed, forbidden } = await canAdminAssignPermissions(
+        adminUserId,
+        companyId,
+        allPermissionIds
+      );
+
+      if (!allowed) {
+        return NextResponse.json(
+          {
+            error: 'You cannot assign permissions you do not have',
+            forbidden,
+          },
+          { status: 403 }
+        );
+      }
     }
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user and assignment in a transaction
+    // Create user, assignment, and overrides in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Create user
       const user = await tx.userMaster.create({
         data: {
           firstName,
           lastName,
-          email,
+          email: email.toLowerCase(),
           password: hashedPassword,
           phone,
           status: 'ACTIVE',
@@ -149,7 +228,7 @@ export async function POST(request: NextRequest) {
       });
 
       // Create company assignment
-      await tx.userCompanyAssignment.create({
+      const assignment = await tx.userCompanyAssignment.create({
         data: {
           userId: user.userId,
           companyId,
@@ -159,15 +238,37 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      return user;
+      // Create permission overrides if any
+      const createdOverrides = [];
+      if (permissionOverrides && permissionOverrides.length > 0 && adminUserId) {
+        for (const override of permissionOverrides) {
+          const created = await tx.userPermissionOverride.create({
+            data: {
+              userId: user.userId,
+              companyId,
+              companyRelationshipId: companyRelationshipId || null,
+              permissionId: override.permissionId,
+              effect: override.effect,
+              reason: override.reason || null,
+              overrideStatus: 'ACTIVE',
+              createdByUserId: adminUserId,
+            },
+          });
+          createdOverrides.push(created);
+        }
+      }
+
+      return { user, assignment, overrides: createdOverrides };
     });
 
     return NextResponse.json(
       {
-        userId: result.userId,
-        firstName: result.firstName,
-        lastName: result.lastName,
-        email: result.email,
+        userId: result.user.userId,
+        firstName: result.user.firstName,
+        lastName: result.user.lastName,
+        email: result.user.email,
+        assignmentId: result.assignment.userCompanyAssignmentId,
+        overridesCreated: result.overrides.length,
       },
       { status: 201 }
     );

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { canAdminAssignPermissions } from '@/lib/permissions';
 
 // GET - Get a single role by ID
 export async function GET(
@@ -52,6 +53,7 @@ export async function GET(
 }
 
 // PUT - Update a role
+// Enforces that admin can only assign permissions they have
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -59,7 +61,11 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { designationName, permissionIds } = body;
+    const { designationName, permissionIds, adminUserId } = body as {
+      designationName?: string;
+      permissionIds?: string[];
+      adminUserId?: string;
+    };
 
     // Check if role exists
     const existing = await prisma.designationMaster.findUnique({
@@ -75,7 +81,7 @@ export async function PUT(
     }
 
     // If updating permissions, validate they're available to the company
-    if (permissionIds !== undefined) {
+    if (permissionIds !== undefined && permissionIds.length > 0) {
       const availablePermissions = await prisma.companyAvailablePermission.findMany({
         where: { companyId: existing.companyId },
       });
@@ -86,6 +92,25 @@ export async function PUT(
           return NextResponse.json(
             { error: 'One or more permissions are not available to this company' },
             { status: 400 }
+          );
+        }
+      }
+
+      // If adminUserId provided, enforce that admin has all permissions they're assigning
+      if (adminUserId) {
+        const { allowed, forbidden } = await canAdminAssignPermissions(
+          adminUserId,
+          existing.companyId,
+          permissionIds
+        );
+
+        if (!allowed) {
+          return NextResponse.json(
+            {
+              error: 'You cannot assign permissions you do not have',
+              forbidden,
+            },
+            { status: 403 }
           );
         }
       }

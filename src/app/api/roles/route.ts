@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { canAdminAssignPermissions } from '@/lib/permissions';
 
 // GET - List roles (designations) for a company
 export async function GET(request: NextRequest) {
@@ -45,10 +46,16 @@ export async function GET(request: NextRequest) {
 }
 
 // POST - Create a new role for a company
+// Enforces that admin can only assign permissions they have
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId, designationName, permissionIds } = body;
+    const { companyId, designationName, permissionIds, adminUserId } = body as {
+      companyId: string;
+      designationName: string;
+      permissionIds?: string[];
+      adminUserId?: string;
+    };
 
     if (!companyId || !designationName) {
       return NextResponse.json(
@@ -82,6 +89,25 @@ export async function POST(request: NextRequest) {
           return NextResponse.json(
             { error: 'One or more permissions are not available to this company' },
             { status: 400 }
+          );
+        }
+      }
+
+      // If adminUserId provided, enforce that admin has all permissions they're assigning
+      if (adminUserId) {
+        const { allowed, forbidden } = await canAdminAssignPermissions(
+          adminUserId,
+          companyId,
+          permissionIds
+        );
+
+        if (!allowed) {
+          return NextResponse.json(
+            {
+              error: 'You cannot assign permissions you do not have',
+              forbidden,
+            },
+            { status: 403 }
           );
         }
       }
