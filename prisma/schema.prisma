@@ -1,0 +1,196 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== COMPANIES ====================
+
+model CompanyMaster {
+  companyId                   String   @id @default(uuid()) @map("company_id")
+  companyName                 String   @map("company_name")
+  companyType                 String   @map("company_type") // RADIAN | MERCHANT | SUPPLIER | BROKER
+  companyStatus               String   @default("ACTIVE") @map("company_status")
+  isClient                    Boolean  @default(false) @map("is_client")
+  termsAndConditionsFile      String?  @map("terms_and_conditions_file")
+  trainingContentFile         String?  @map("training_content_file")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  designations                DesignationMaster[]
+  userAssignments             UserCompanyAssignment[]
+  availablePermissions        CompanyAvailablePermission[]
+  relationshipsAsFrom         CompanyRelationship[] @relation("FromCompany")
+  relationshipsAsTo           CompanyRelationship[] @relation("ToCompany")
+
+  @@map("company_master")
+}
+
+model CompanyRelationship {
+  companyRelationshipId       String   @id @default(uuid()) @map("company_relationship_id")
+  fromCompanyId               String   @map("from_company_id")
+  toCompanyId                 String   @map("to_company_id")
+  relationshipType            String   @map("relationship_type") // MERCHANT_SUPPLIER | BROKER_SUPPLIER | PARTNER
+  relationshipStatus          String   @default("ACTIVE") @map("relationship_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  fromCompany                 CompanyMaster @relation("FromCompany", fields: [fromCompanyId], references: [companyId])
+  toCompany                   CompanyMaster @relation("ToCompany", fields: [toCompanyId], references: [companyId])
+  userAssignments             UserCompanyAssignment[]
+
+  @@map("company_relationship")
+}
+
+// ==================== USERS ====================
+
+model UserMaster {
+  userId                      String   @id @default(uuid()) @map("user_id")
+  firstName                   String   @map("first_name")
+  middleName                  String?  @map("middle_name")
+  lastName                    String   @map("last_name")
+  email                       String   @unique
+  password                    String   // Hashed password for prototype
+  phone                       String?
+  status                      String   @default("ACTIVE")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  companyAssignments          UserCompanyAssignment[]
+  grantedPermissions          CompanyAvailablePermission[]
+
+  @@map("user_master")
+}
+
+// ==================== ROLES (DESIGNATIONS) ====================
+
+model DesignationMaster {
+  designationId               String   @id @default(uuid()) @map("designation_id")
+  companyId                   String   @map("company_id")
+  designationName             String   @map("designation_name")
+  designationStatus           String   @default("ACTIVE") @map("designation_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company                     CompanyMaster @relation(fields: [companyId], references: [companyId])
+  userAssignments             UserCompanyAssignment[]
+  permissions                 DesignationPermission[]
+
+  @@map("designation_master")
+}
+
+// ==================== USER ASSIGNMENTS (CORE JUNCTION) ====================
+
+model UserCompanyAssignment {
+  userCompanyAssignmentId     String   @id @default(uuid()) @map("user_company_assignment_id")
+  userId                      String   @map("user_id")
+  companyId                   String   @map("company_id")
+  designationId               String   @map("designation_id")
+  companyRelationshipId       String?  @map("company_relationship_id") // NULL = all relationships
+  assignmentStatus            String   @default("ACTIVE") @map("assignment_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user                        UserMaster @relation(fields: [userId], references: [userId])
+  company                     CompanyMaster @relation(fields: [companyId], references: [companyId])
+  designation                 DesignationMaster @relation(fields: [designationId], references: [designationId])
+  companyRelationship         CompanyRelationship? @relation(fields: [companyRelationshipId], references: [companyRelationshipId])
+
+  @@map("user_company_assignments")
+}
+
+// ==================== PERMISSIONS ====================
+
+model PermissionMaster {
+  permissionId                String   @id @default(uuid()) @map("permission_id")
+  permissionKey               String   @unique @map("permission_key")
+  permissionDescription       String   @map("permission_description")
+  permissionCategory          String   @map("permission_category") // DEALS | REPORTS | USERS | SETTINGS | ADMIN
+  permissionStatus            String   @default("ACTIVE") @map("permission_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  companyAvailablePermissions CompanyAvailablePermission[]
+  designationPermissions      DesignationPermission[]
+  routePermissions            RoutePermission[]
+
+  @@map("permission_master")
+}
+
+model CompanyAvailablePermission {
+  companyAvailablePermissionId String  @id @default(uuid()) @map("company_available_permission_id")
+  companyId                    String  @map("company_id")
+  permissionId                 String  @map("permission_id")
+  grantedByUserId              String? @map("granted_by_user_id")
+  createdAt                    DateTime @default(now()) @map("created_at")
+
+  // Relations
+  company                      CompanyMaster @relation(fields: [companyId], references: [companyId])
+  permission                   PermissionMaster @relation(fields: [permissionId], references: [permissionId])
+  grantedBy                    UserMaster? @relation(fields: [grantedByUserId], references: [userId])
+
+  @@unique([companyId, permissionId])
+  @@map("company_available_permissions")
+}
+
+model DesignationPermission {
+  designationPermissionId     String   @id @default(uuid()) @map("designation_permission_id")
+  designationId               String   @map("designation_id")
+  permissionId                String   @map("permission_id")
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  designation                 DesignationMaster @relation(fields: [designationId], references: [designationId])
+  permission                  PermissionMaster @relation(fields: [permissionId], references: [permissionId])
+
+  @@unique([designationId, permissionId])
+  @@map("designation_permissions")
+}
+
+// ==================== ROUTES / NAVIGATION ====================
+
+model Route {
+  routeId                     String   @id @default(uuid()) @map("route_id")
+  routePath                   String   @unique @map("route_path")
+  routeLabel                  String   @map("route_label")
+  routeDescription            String?  @map("route_description")
+  showOnSideMenu              Boolean  @default(true) @map("show_on_side_menu")
+  routeIcon                   String?  @map("route_icon")
+  displayOrder                Int      @default(0) @map("display_order")
+  parentRouteId               String?  @map("parent_route_id")
+  routeStatus                 String   @default("ACTIVE") @map("route_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  parentRoute                 Route?   @relation("RouteHierarchy", fields: [parentRouteId], references: [routeId])
+  childRoutes                 Route[]  @relation("RouteHierarchy")
+  permissions                 RoutePermission[]
+
+  @@map("routes")
+}
+
+model RoutePermission {
+  routePermissionId           String   @id @default(uuid()) @map("route_permission_id")
+  routeId                     String   @map("route_id")
+  permissionId                String   @map("permission_id")
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  route                       Route @relation(fields: [routeId], references: [routeId])
+  permission                  PermissionMaster @relation(fields: [permissionId], references: [permissionId])
+
+  @@unique([routeId, permissionId])
+  @@map("route_permissions")
+}
