@@ -29,6 +29,9 @@ model CompanyMaster {
   availablePermissions        CompanyAvailablePermission[]
   relationshipsAsFrom         CompanyRelationship[] @relation("FromCompany")
   relationshipsAsTo           CompanyRelationship[] @relation("ToCompany")
+  permissionOverrides         UserPermissionOverride[]
+  files                       FileMaster[]
+  auditLogs                   AuditLog[]
 
   @@map("company_master")
 }
@@ -46,6 +49,7 @@ model CompanyRelationship {
   fromCompany                 CompanyMaster @relation("FromCompany", fields: [fromCompanyId], references: [companyId])
   toCompany                   CompanyMaster @relation("ToCompany", fields: [toCompanyId], references: [companyId])
   userAssignments             UserCompanyAssignment[]
+  permissionOverrides         UserPermissionOverride[]
 
   @@map("company_relationship")
 }
@@ -67,6 +71,10 @@ model UserMaster {
   // Relations
   companyAssignments          UserCompanyAssignment[]
   grantedPermissions          CompanyAvailablePermission[]
+  permissionOverrides         UserPermissionOverride[] @relation("PermissionOverrides")
+  createdOverrides            UserPermissionOverride[] @relation("OverrideCreator")
+  uploadedFiles               FileMaster[]
+  auditLogs                   AuditLog[]
 
   @@map("user_master")
 }
@@ -125,6 +133,7 @@ model PermissionMaster {
   companyAvailablePermissions CompanyAvailablePermission[]
   designationPermissions      DesignationPermission[]
   routePermissions            RoutePermission[]
+  userOverrides               UserPermissionOverride[]
 
   @@map("permission_master")
 }
@@ -194,4 +203,84 @@ model RoutePermission {
 
   @@unique([routeId, permissionId])
   @@map("route_permissions")
+}
+
+// ==================== USER PERMISSION OVERRIDES ====================
+
+model UserPermissionOverride {
+  userPermissionOverrideId    String   @id @default(uuid()) @map("user_permission_override_id")
+  userId                      String   @map("user_id")
+  companyId                   String   @map("company_id")
+  companyRelationshipId       String?  @map("company_relationship_id") // Optional scope
+  permissionId                String   @map("permission_id")
+  effect                      String   @map("effect") // ALLOW | DENY
+  reason                      String?  @map("reason") // Why this override exists
+  overrideStatus              String   @default("ACTIVE") @map("override_status")
+  createdByUserId             String?  @map("created_by_user_id")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user                        UserMaster @relation("PermissionOverrides", fields: [userId], references: [userId])
+  company                     CompanyMaster @relation(fields: [companyId], references: [companyId])
+  companyRelationship         CompanyRelationship? @relation(fields: [companyRelationshipId], references: [companyRelationshipId])
+  permission                  PermissionMaster @relation(fields: [permissionId], references: [permissionId])
+  createdBy                   UserMaster? @relation("OverrideCreator", fields: [createdByUserId], references: [userId])
+
+  @@unique([userId, companyId, companyRelationshipId, permissionId])
+  @@map("user_permission_overrides")
+}
+
+// ==================== FILE MANAGEMENT ====================
+
+model FileMaster {
+  fileId                      String   @id @default(uuid()) @map("file_id")
+  fileName                    String   @map("file_name")
+  originalFileName            String   @map("original_file_name")
+  contentType                 String   @map("content_type") // MIME type
+  fileSize                    Int      @map("file_size") // bytes
+  storageKey                  String   @map("storage_key") // Supabase storage path
+  storageUrl                  String?  @map("storage_url") // Public URL if applicable
+  entityType                  String?  @map("entity_type") // e.g., COMPANY, USER, DEAL
+  entityId                    String?  @map("entity_id") // ID of related entity
+  uploadedByUserId            String   @map("uploaded_by_user_id")
+  companyId                   String?  @map("company_id") // File belongs to company
+  fileStatus                  String   @default("ACTIVE") @map("file_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  uploadedBy                  UserMaster @relation(fields: [uploadedByUserId], references: [userId])
+  company                     CompanyMaster? @relation(fields: [companyId], references: [companyId])
+
+  @@map("file_master")
+}
+
+// ==================== AUDIT LOG ====================
+
+model AuditLog {
+  auditLogId                  String   @id @default(uuid()) @map("audit_log_id")
+  actorUserId                 String?  @map("actor_user_id") // Who performed the action (null for system)
+  actorCompanyId              String?  @map("actor_company_id") // Context company
+  actionKey                   String   @map("action_key") // e.g., USER_CREATED, PERMISSION_GRANTED
+  actionCategory              String   @map("action_category") // AUTH | USER | COMPANY | PERMISSION | SYSTEM
+  entityType                  String   @map("entity_type") // e.g., USER, COMPANY, DESIGNATION
+  entityId                    String   @map("entity_id") // ID of affected entity
+  entityName                  String?  @map("entity_name") // Human-readable name for context
+  previousValue               Json?    @map("previous_value") // State before change
+  newValue                    Json?    @map("new_value") // State after change
+  metadata                    Json?    @map("metadata") // Additional context
+  ipAddress                   String?  @map("ip_address")
+  userAgent                   String?  @map("user_agent")
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  actor                       UserMaster? @relation(fields: [actorUserId], references: [userId])
+  actorCompany                CompanyMaster? @relation(fields: [actorCompanyId], references: [companyId])
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@index([actionKey])
+  @@index([createdAt])
+  @@map("audit_log")
 }
