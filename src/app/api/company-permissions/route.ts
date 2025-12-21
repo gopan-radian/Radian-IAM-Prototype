@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     });
 
     const grantedPermissionIds = new Set(
-      companyPermissions.map((cp) => cp.permissionId)
+      companyPermissions.map((cp: { permissionId: string }) => cp.permissionId)
     );
 
     // Combine into a response showing which permissions are granted
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
       ...permission,
       isGranted: grantedPermissionIds.has(permission.permissionId),
       grantedInfo: companyPermissions.find(
-        (cp) => cp.permissionId === permission.permissionId
+        (cp: { permissionId: string }) => cp.permissionId === permission.permissionId
       ),
     }));
 
@@ -239,7 +239,7 @@ export async function PUT(request: NextRequest) {
     const currentPermissions = await prisma.companyAvailablePermission.findMany({
       where: { companyId },
     });
-    const currentIds = new Set(currentPermissions.map((cp) => cp.permissionId));
+    const currentIds = new Set(currentPermissions.map((cp: { permissionId: string }) => cp.permissionId));
 
     // Determine which to add and remove
     const newIds = new Set(permissionIds);
