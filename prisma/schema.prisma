@@ -132,7 +132,6 @@ model PermissionMaster {
   // Relations
   companyAvailablePermissions CompanyAvailablePermission[]
   designationPermissions      DesignationPermission[]
-  routePermissions            RoutePermission[]
   userOverrides               UserPermissionOverride[]
 
   @@map("permission_master")
@@ -166,43 +165,6 @@ model DesignationPermission {
 
   @@unique([designationId, permissionId])
   @@map("designation_permissions")
-}
-
-// ==================== ROUTES / NAVIGATION ====================
-
-model Route {
-  routeId                     String   @id @default(uuid()) @map("route_id")
-  routePath                   String   @unique @map("route_path")
-  routeLabel                  String   @map("route_label")
-  routeDescription            String?  @map("route_description")
-  showOnSideMenu              Boolean  @default(true) @map("show_on_side_menu")
-  routeIcon                   String?  @map("route_icon")
-  displayOrder                Int      @default(0) @map("display_order")
-  parentRouteId               String?  @map("parent_route_id")
-  routeStatus                 String   @default("ACTIVE") @map("route_status")
-  createdAt                   DateTime @default(now()) @map("created_at")
-  updatedAt                   DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  parentRoute                 Route?   @relation("RouteHierarchy", fields: [parentRouteId], references: [routeId])
-  childRoutes                 Route[]  @relation("RouteHierarchy")
-  permissions                 RoutePermission[]
-
-  @@map("routes")
-}
-
-model RoutePermission {
-  routePermissionId           String   @id @default(uuid()) @map("route_permission_id")
-  routeId                     String   @map("route_id")
-  permissionId                String   @map("permission_id")
-  createdAt                   DateTime @default(now()) @map("created_at")
-
-  // Relations
-  route                       Route @relation(fields: [routeId], references: [routeId])
-  permission                  PermissionMaster @relation(fields: [permissionId], references: [permissionId])
-
-  @@unique([routeId, permissionId])
-  @@map("route_permissions")
 }
 
 // ==================== USER PERMISSION OVERRIDES ====================

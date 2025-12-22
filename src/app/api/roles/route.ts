@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { canAdminAssignPermissions } from '@/lib/permissions';
+import { canAdminAssignPermissions, expandPermissionIds } from '@/lib/permissions';
 
 // GET - List roles (designations) for a company
 export async function GET(request: NextRequest) {
@@ -82,12 +82,16 @@ export async function POST(request: NextRequest) {
     });
     const availablePermissionIds = new Set(availablePermissions.map((p) => p.permissionId));
 
-    // Validate that requested permissions are available to this company
+    // Expand permissions to include dependencies
+    let expandedPermissionIds: string[] = [];
     if (permissionIds && permissionIds.length > 0) {
-      for (const permId of permissionIds) {
+      expandedPermissionIds = await expandPermissionIds(permissionIds);
+
+      // Validate that all expanded permissions are available to this company
+      for (const permId of expandedPermissionIds) {
         if (!availablePermissionIds.has(permId)) {
           return NextResponse.json(
-            { error: 'One or more permissions are not available to this company' },
+            { error: 'One or more permissions (including required dependencies) are not available to this company' },
             { status: 400 }
           );
         }
@@ -98,7 +102,7 @@ export async function POST(request: NextRequest) {
         const { allowed, forbidden } = await canAdminAssignPermissions(
           adminUserId,
           companyId,
-          permissionIds
+          expandedPermissionIds
         );
 
         if (!allowed) {
@@ -139,10 +143,10 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Add permissions if provided
-      if (permissionIds && permissionIds.length > 0) {
+      // Add expanded permissions (includes dependencies)
+      if (expandedPermissionIds.length > 0) {
         await tx.designationPermission.createMany({
-          data: permissionIds.map((permissionId: string) => ({
+          data: expandedPermissionIds.map((permissionId: string) => ({
             designationId: role.designationId,
             permissionId,
           })),

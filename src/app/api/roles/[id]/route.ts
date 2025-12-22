@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { canAdminAssignPermissions } from '@/lib/permissions';
+import { canAdminAssignPermissions, expandPermissionIds } from '@/lib/permissions';
 
 // GET - Get a single role by ID
 export async function GET(
@@ -80,17 +80,20 @@ export async function PUT(
       );
     }
 
-    // If updating permissions, validate they're available to the company
+    // Expand permissions to include dependencies
+    let expandedPermissionIds: string[] = [];
     if (permissionIds !== undefined && permissionIds.length > 0) {
+      expandedPermissionIds = await expandPermissionIds(permissionIds);
+
       const availablePermissions = await prisma.companyAvailablePermission.findMany({
         where: { companyId: existing.companyId },
       });
       const availablePermissionIds = new Set(availablePermissions.map((p) => p.permissionId));
 
-      for (const permId of permissionIds) {
+      for (const permId of expandedPermissionIds) {
         if (!availablePermissionIds.has(permId)) {
           return NextResponse.json(
-            { error: 'One or more permissions are not available to this company' },
+            { error: 'One or more permissions (including required dependencies) are not available to this company' },
             { status: 400 }
           );
         }
@@ -101,7 +104,7 @@ export async function PUT(
         const { allowed, forbidden } = await canAdminAssignPermissions(
           adminUserId,
           existing.companyId,
-          permissionIds
+          expandedPermissionIds
         );
 
         if (!allowed) {
@@ -145,17 +148,17 @@ export async function PUT(
         });
       }
 
-      // Update permissions if provided
+      // Update permissions if provided (use expanded permissions)
       if (permissionIds !== undefined) {
         // Remove all existing permissions
         await tx.designationPermission.deleteMany({
           where: { designationId: id },
         });
 
-        // Add new permissions
-        if (permissionIds.length > 0) {
+        // Add expanded permissions (includes dependencies)
+        if (expandedPermissionIds.length > 0) {
           await tx.designationPermission.createMany({
-            data: permissionIds.map((permissionId: string) => ({
+            data: expandedPermissionIds.map((permissionId: string) => ({
               designationId: id,
               permissionId,
             })),

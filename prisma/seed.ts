@@ -52,71 +52,8 @@ async function main() {
 
   console.log(`✅ Created ${permissionRecords.length} permissions`);
 
-  // ==================== ROUTES ====================
-  const routes = [
-    { path: '/dashboard', label: 'Dashboard', icon: 'home', order: 1, permission: null },
-    { path: '/deals', label: 'Deals', icon: 'file-text', order: 2, permission: 'deals.view' },
-    { path: '/deals/create', label: 'Create Deal', icon: 'plus', order: 1, permission: 'deals.create', parent: '/deals', showOnMenu: false },
-    { path: '/reports', label: 'Reports', icon: 'bar-chart', order: 3, permission: 'reports.view' },
-    { path: '/reports/export', label: 'Export Center', icon: 'download', order: 1, permission: 'reports.export', parent: '/reports' },
-    { path: '/settings', label: 'Settings', icon: 'settings', order: 10 },
-    { path: '/settings/users', label: 'User Management', icon: 'users', order: 1, permission: 'users.view', parent: '/settings' },
-    { path: '/settings/roles', label: 'Role Management', icon: 'shield', order: 2, permission: 'roles.view', parent: '/settings' },
-    { path: '/admin/companies', label: 'Companies', icon: 'building', order: 20, permission: 'admin.companies' },
-    { path: '/admin/company-permissions', label: 'Company Permissions', icon: 'key', order: 21, permission: 'admin.company_permissions' },
-    { path: '/admin/relationships', label: 'Relationships', icon: 'link', order: 22, permission: 'admin.relationships' },
-  ];
-
-  // Create or update routes
-  const routeRecords: Record<string, any> = {};
-  for (const r of routes) {
-    const route = await prisma.route.upsert({
-      where: { routePath: r.path },
-      update: {
-        routeLabel: r.label,
-        routeIcon: r.icon,
-        displayOrder: r.order,
-        showOnSideMenu: r.showOnMenu !== false,
-      },
-      create: {
-        routePath: r.path,
-        routeLabel: r.label,
-        routeIcon: r.icon,
-        displayOrder: r.order,
-        showOnSideMenu: r.showOnMenu !== false,
-      },
-    });
-    routeRecords[r.path] = route;
-  }
-
-  // Set parent routes
-  for (const r of routes) {
-    if (r.parent) {
-      await prisma.route.update({
-        where: { routeId: routeRecords[r.path].routeId },
-        data: { parentRouteId: routeRecords[r.parent].routeId },
-      });
-    }
-  }
-
-  // Create route permissions
-  for (const r of routes) {
-    if (r.permission) {
-      const permission = permissionRecords.find((p) => p.permissionKey === r.permission);
-      if (permission) {
-        await prisma.routePermission.upsert({
-          where: { routeId_permissionId: { routeId: routeRecords[r.path].routeId, permissionId: permission.permissionId } },
-          update: {},
-          create: {
-            routeId: routeRecords[r.path].routeId,
-            permissionId: permission.permissionId,
-          },
-        });
-      }
-    }
-  }
-
-  console.log(`✅ Created ${Object.keys(routeRecords).length} routes`);
+  // Note: Routes are no longer stored in the database.
+  // UI routes and their permission requirements are defined in src/config/permissions.ts
 
   // ==================== COMPANIES ====================
   const companies = {

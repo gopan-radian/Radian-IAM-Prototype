@@ -253,32 +253,68 @@ export function hasAllPermissions(userPermissions: string[], requiredPermissions
 }
 
 /**
- * Get filtered routes based on user permissions
+ * Permission dependencies - when assigning a permission, these are auto-included.
+ * This mirrors the config in src/config/permissions.ts for server-side use.
  */
-export async function getAccessibleRoutes(userPermissions: string[]) {
-  const routes = await prisma.route.findMany({
-    where: { routeStatus: 'ACTIVE' },
-    include: {
-      permissions: {
-        include: { permission: true },
-      },
-      childRoutes: {
-        include: {
-          permissions: {
-            include: { permission: true },
-          },
-        },
-      },
-    },
-    orderBy: { displayOrder: 'asc' },
+const PERMISSION_DEPENDENCIES: Record<string, string[]> = {
+  'deals.create': ['deals.view'],
+  'deals.edit': ['deals.view'],
+  'deals.delete': ['deals.view'],
+  'deals.approve': ['deals.view'],
+  'reports.export': ['reports.view'],
+  'users.invite': ['users.view'],
+  'users.manage': ['users.view'],
+  'roles.manage': ['roles.view'],
+  'admin.company_permissions': ['admin.companies'],
+  'admin.relationships': ['admin.companies'],
+};
+
+/**
+ * Expand permission keys to include all dependencies (recursive)
+ */
+export function expandPermissionKeys(permissionKeys: string[]): string[] {
+  const expanded = new Set<string>(permissionKeys);
+
+  const addDependencies = (key: string) => {
+    const deps = PERMISSION_DEPENDENCIES[key];
+    if (deps) {
+      for (const dep of deps) {
+        if (!expanded.has(dep)) {
+          expanded.add(dep);
+          addDependencies(dep); // Recursive for nested deps
+        }
+      }
+    }
+  };
+
+  for (const key of permissionKeys) {
+    addDependencies(key);
+  }
+
+  return Array.from(expanded);
+}
+
+/**
+ * Expand permission IDs to include all dependencies.
+ * Takes permission IDs, looks up their keys, expands, and returns expanded IDs.
+ */
+export async function expandPermissionIds(permissionIds: string[]): Promise<string[]> {
+  if (permissionIds.length === 0) return [];
+
+  // Get permission keys for the given IDs
+  const permissions = await prisma.permissionMaster.findMany({
+    where: { permissionId: { in: permissionIds } },
   });
 
-  return routes.filter((route) => {
-    // If route has no permissions, it's accessible to all
-    if (route.permissions.length === 0) return true;
-    // Check if user has any required permission
-    return route.permissions.some((rp) => userPermissions.includes(rp.permission.permissionKey));
+  const permissionKeys = permissions.map((p) => p.permissionKey);
+  const expandedKeys = expandPermissionKeys(permissionKeys);
+
+  // Get IDs for all expanded permissions
+  const allPermissions = await prisma.permissionMaster.findMany({
+    where: { permissionKey: { in: expandedKeys } },
   });
+
+  return allPermissions.map((p) => p.permissionId);
 }
 
 /**
