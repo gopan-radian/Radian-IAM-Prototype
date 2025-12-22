@@ -3,6 +3,49 @@
 import { createContext, useState, useEffect, ReactNode } from 'react';
 import { useSession } from 'next-auth/react';
 
+interface NavItem {
+  path: string;
+  label: string;
+  icon: string;
+  permission: string | null;
+  children?: NavItem[];
+}
+
+interface RouteItem {
+  routeId: string;
+  routePath: string;
+  routeLabel: string;
+  routeIcon: string;
+  showOnSideMenu: boolean;
+  parentRouteId: string | null;
+}
+
+/**
+ * Flatten navigation tree into array format expected by sidebar
+ */
+function flattenNavigation(items: NavItem[], parentId: string | null = null): RouteItem[] {
+  const result: RouteItem[] = [];
+
+  for (const item of items) {
+    const routeId = item.path.replace(/\//g, '-').slice(1) || 'home';
+
+    result.push({
+      routeId,
+      routePath: item.path,
+      routeLabel: item.label,
+      routeIcon: item.icon,
+      showOnSideMenu: true,
+      parentRouteId: parentId,
+    });
+
+    if (item.children) {
+      result.push(...flattenNavigation(item.children, routeId));
+    }
+  }
+
+  return result;
+}
+
 export interface CurrentContext {
   userId: string;
   companyId: string;
@@ -69,10 +112,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ permissions: context.permissions }),
             });
-            const routes = await response.json();
+            const data = await response.json();
+            // The API now returns { navigation, accessiblePages, visibleSidebarItems }
+            // Convert navigation to the format expected by the sidebar
+            const routes = flattenNavigation(data.navigation || []);
             setAccessibleRoutes(routes);
           } catch (error) {
             console.error('Failed to fetch routes:', error);
+            setAccessibleRoutes([]);
           }
         }
       }
@@ -92,10 +139,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ permissions: context.permissions }),
       });
-      const routes = await response.json();
+      const data = await response.json();
+      const routes = flattenNavigation(data.navigation || []);
       setAccessibleRoutes(routes);
     } catch (error) {
       console.error('Failed to fetch routes:', error);
+      setAccessibleRoutes([]);
     }
   };
 
