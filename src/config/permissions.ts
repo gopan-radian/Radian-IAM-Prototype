@@ -16,12 +16,20 @@
 // =============================================================================
 
 export const PERMISSIONS = {
-  // DEALS
+  // DEALS - Basic
   'deals.view': { description: 'View deals', category: 'DEALS' },
-  'deals.create': { description: 'Create new deals', category: 'DEALS' },
+  'deals.create': { description: 'Create new deals (Supplier)', category: 'DEALS' },
   'deals.edit': { description: 'Edit existing deals', category: 'DEALS' },
   'deals.delete': { description: 'Delete deals', category: 'DEALS' },
-  'deals.approve': { description: 'Approve/reject deals', category: 'DEALS' },
+
+  // DEALS - Workflow (Supplier actions)
+  'deals.submit': { description: 'Submit deals for review (Supplier)', category: 'DEALS' },
+
+  // DEALS - Workflow (Merchant actions)
+  'deals.review': { description: 'Review submitted deals (Merchant)', category: 'DEALS' },
+  'deals.approve': { description: 'Approve deals (Merchant)', category: 'DEALS' },
+  'deals.reject': { description: 'Reject deals (Merchant)', category: 'DEALS' },
+  'deals.request_changes': { description: 'Request changes on deals (Merchant)', category: 'DEALS' },
 
   // REPORTS
   'reports.view': { description: 'View reports', category: 'REPORTS' },
@@ -58,7 +66,13 @@ export const PERMISSION_DEPENDENCIES: Partial<Record<PermissionKey, PermissionKe
   'deals.create': ['deals.view'],
   'deals.edit': ['deals.view'],
   'deals.delete': ['deals.view'],
-  'deals.approve': ['deals.view'],
+  'deals.submit': ['deals.view', 'deals.create'], // Submit requires create
+
+  // Deals - Merchant workflow (all require view)
+  'deals.review': ['deals.view'],
+  'deals.approve': ['deals.view', 'deals.review'], // Approve requires review
+  'deals.reject': ['deals.view', 'deals.review'], // Reject requires review
+  'deals.request_changes': ['deals.view', 'deals.review'], // Request changes requires review
 
   // Reports
   'reports.export': ['reports.view'],
@@ -138,7 +152,31 @@ export const PERMISSION_BUNDLES = {
     permissions: ['deals.view', 'reports.view', 'users.view'] as PermissionKey[],
   },
 
-  // Deal management bundles
+  // Deal management bundles - Supplier
+  'deals.supplier_contributor': {
+    name: 'Supplier - Deal Contributor',
+    description: 'Can create, edit and submit deals (Supplier)',
+    permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.submit'] as PermissionKey[],
+  },
+  'deals.supplier_admin': {
+    name: 'Supplier - Deal Admin',
+    description: 'Full supplier deal management including deletion',
+    permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.submit'] as PermissionKey[],
+  },
+
+  // Deal management bundles - Merchant
+  'deals.merchant_reviewer': {
+    name: 'Merchant - Deal Reviewer',
+    description: 'Can review and request changes on deals (Merchant)',
+    permissions: ['deals.view', 'deals.review', 'deals.request_changes'] as PermissionKey[],
+  },
+  'deals.merchant_approver': {
+    name: 'Merchant - Deal Approver',
+    description: 'Can review, approve, and reject deals (Merchant)',
+    permissions: ['deals.view', 'deals.review', 'deals.approve', 'deals.reject', 'deals.request_changes'] as PermissionKey[],
+  },
+
+  // Legacy bundles (backward compatibility)
   'deals.contributor': {
     name: 'Deal Contributor',
     description: 'Can create and edit deals',
@@ -147,12 +185,12 @@ export const PERMISSION_BUNDLES = {
   'deals.manager': {
     name: 'Deal Manager',
     description: 'Full deal management including approval',
-    permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.approve'] as PermissionKey[],
+    permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.submit', 'deals.review', 'deals.approve'] as PermissionKey[],
   },
   'deals.admin': {
     name: 'Deal Admin',
     description: 'Full deal management including deletion',
-    permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.approve'] as PermissionKey[],
+    permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.submit', 'deals.review', 'deals.approve', 'deals.reject', 'deals.request_changes'] as PermissionKey[],
   },
 
   // User management bundles
@@ -278,8 +316,11 @@ export const UI_PERMISSIONS = {
     'deals.create': 'deals.create',
     'deals.edit': 'deals.edit',
     'deals.delete': 'deals.delete',
+    'deals.submit': 'deals.submit',
+    'deals.review': 'deals.review',
     'deals.approve': 'deals.approve',
-    'deals.reject': 'deals.approve',
+    'deals.reject': 'deals.reject',
+    'deals.request_changes': 'deals.request_changes',
     'reports.export': 'reports.export',
     'users.invite': 'users.invite',
     'users.edit': 'users.manage',

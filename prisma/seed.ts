@@ -13,12 +13,18 @@ async function main() {
 
   // ==================== PERMISSIONS ====================
   const permissions = [
-    // DEALS
+    // DEALS - Basic
     { key: 'deals.view', description: 'View deals', category: 'DEALS' },
-    { key: 'deals.create', description: 'Create new deals', category: 'DEALS' },
+    { key: 'deals.create', description: 'Create new deals (Supplier)', category: 'DEALS' },
     { key: 'deals.edit', description: 'Edit existing deals', category: 'DEALS' },
     { key: 'deals.delete', description: 'Delete deals', category: 'DEALS' },
-    { key: 'deals.approve', description: 'Approve/reject deals', category: 'DEALS' },
+    // DEALS - Workflow (Supplier)
+    { key: 'deals.submit', description: 'Submit deals for review (Supplier)', category: 'DEALS' },
+    // DEALS - Workflow (Merchant)
+    { key: 'deals.review', description: 'Review submitted deals (Merchant)', category: 'DEALS' },
+    { key: 'deals.approve', description: 'Approve deals (Merchant)', category: 'DEALS' },
+    { key: 'deals.reject', description: 'Reject deals (Merchant)', category: 'DEALS' },
+    { key: 'deals.request_changes', description: 'Request changes on deals (Merchant)', category: 'DEALS' },
     // REPORTS
     { key: 'reports.view', description: 'View reports', category: 'REPORTS' },
     { key: 'reports.export', description: 'Export reports to CSV/PDF', category: 'REPORTS' },
@@ -300,6 +306,153 @@ async function main() {
   }
 
   console.log('✅ Assigned company available permissions');
+
+  // ==================== SYSTEM PERMISSION BUNDLES ====================
+  // These are Radian-defined bundles available to all companies
+  const systemBundles = [
+    // Viewer bundles
+    {
+      id: 'bundle-viewer-deals',
+      name: 'Deal Viewer',
+      description: 'Can view deals and related information',
+      permissions: ['deals.view'],
+    },
+    {
+      id: 'bundle-viewer-full',
+      name: 'Full Viewer',
+      description: 'Read-only access to deals, reports, and users',
+      permissions: ['deals.view', 'reports.view', 'users.view'],
+    },
+    // Supplier bundles
+    {
+      id: 'bundle-supplier-contributor',
+      name: 'Supplier - Deal Contributor',
+      description: 'Can create, edit and submit deals (Supplier)',
+      permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.submit'],
+    },
+    {
+      id: 'bundle-supplier-admin',
+      name: 'Supplier - Deal Admin',
+      description: 'Full supplier deal management including deletion',
+      permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.submit'],
+    },
+    // Merchant bundles
+    {
+      id: 'bundle-merchant-reviewer',
+      name: 'Merchant - Deal Reviewer',
+      description: 'Can review and request changes on deals (Merchant)',
+      permissions: ['deals.view', 'deals.review', 'deals.request_changes'],
+    },
+    {
+      id: 'bundle-merchant-approver',
+      name: 'Merchant - Deal Approver',
+      description: 'Can review, approve, and reject deals (Merchant)',
+      permissions: ['deals.view', 'deals.review', 'deals.approve', 'deals.reject', 'deals.request_changes'],
+    },
+    // User management bundles
+    {
+      id: 'bundle-user-inviter',
+      name: 'User Inviter',
+      description: 'Can view and invite users',
+      permissions: ['users.view', 'users.invite'],
+    },
+    {
+      id: 'bundle-user-manager',
+      name: 'User Manager',
+      description: 'Full user management',
+      permissions: ['users.view', 'users.invite', 'users.manage'],
+    },
+    // Role-based bundles
+    {
+      id: 'bundle-role-basic',
+      name: 'Basic User',
+      description: 'View deals and reports',
+      permissions: ['deals.view', 'reports.view'],
+    },
+    {
+      id: 'bundle-role-standard',
+      name: 'Standard User',
+      description: 'Create deals, view reports',
+      permissions: ['deals.view', 'deals.create', 'reports.view'],
+    },
+    {
+      id: 'bundle-role-admin',
+      name: 'Company Admin',
+      description: 'Full access to deals, reports, users, and settings',
+      permissions: [
+        'deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.submit',
+        'deals.review', 'deals.approve', 'deals.reject', 'deals.request_changes',
+        'reports.view', 'reports.export',
+        'users.view', 'users.invite', 'users.manage',
+        'roles.view', 'roles.manage',
+        'company.settings',
+      ],
+    },
+    // Radian-specific bundles
+    {
+      id: 'bundle-radian-support',
+      name: 'Radian Support',
+      description: 'Support specialist access',
+      permissions: ['deals.view', 'reports.view', 'users.view'],
+    },
+    {
+      id: 'bundle-radian-account-manager',
+      name: 'Radian Account Manager',
+      description: 'Account manager with admin capabilities',
+      permissions: [
+        'deals.view', 'deals.create', 'deals.edit', 'deals.submit',
+        'deals.review', 'deals.approve',
+        'reports.view', 'reports.export',
+        'users.view', 'users.invite',
+        'admin.companies', 'admin.company_permissions', 'admin.relationships',
+      ],
+    },
+    {
+      id: 'bundle-radian-super-admin',
+      name: 'Radian Super Admin',
+      description: 'Full system access',
+      permissions: permissions.map((p) => p.key),
+    },
+  ];
+
+  for (const bundle of systemBundles) {
+    // Create the bundle (system bundles have no companyId)
+    const bundleRecord = await prisma.permissionBundle.upsert({
+      where: { bundleId: bundle.id },
+      update: {
+        bundleName: bundle.name,
+        bundleDescription: bundle.description,
+      },
+      create: {
+        bundleId: bundle.id,
+        companyId: null, // System bundle
+        bundleName: bundle.name,
+        bundleDescription: bundle.description,
+      },
+    });
+
+    // Add permissions to bundle
+    for (const permKey of bundle.permissions) {
+      const perm = permissionRecords.find((p) => p.permissionKey === permKey);
+      if (perm) {
+        await prisma.bundlePermission.upsert({
+          where: {
+            bundleId_permissionId: {
+              bundleId: bundleRecord.bundleId,
+              permissionId: perm.permissionId,
+            },
+          },
+          update: {},
+          create: {
+            bundleId: bundleRecord.bundleId,
+            permissionId: perm.permissionId,
+          },
+        });
+      }
+    }
+  }
+
+  console.log(`✅ Created ${systemBundles.length} system permission bundles`);
 
   // ==================== DESIGNATIONS (ROLES) ====================
   const designations = {

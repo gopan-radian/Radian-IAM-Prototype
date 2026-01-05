@@ -32,6 +32,8 @@ model CompanyMaster {
   permissionOverrides         UserPermissionOverride[]
   files                       FileMaster[]
   auditLogs                   AuditLog[]
+  permissionBundles           PermissionBundle[]
+  userBundleAssignments       UserBundleAssignment[]
 
   @@map("company_master")
 }
@@ -50,6 +52,7 @@ model CompanyRelationship {
   toCompany                   CompanyMaster @relation("ToCompany", fields: [toCompanyId], references: [companyId])
   userAssignments             UserCompanyAssignment[]
   permissionOverrides         UserPermissionOverride[]
+  userBundleAssignments       UserBundleAssignment[]
 
   @@map("company_relationship")
 }
@@ -75,6 +78,7 @@ model UserMaster {
   createdOverrides            UserPermissionOverride[] @relation("OverrideCreator")
   uploadedFiles               FileMaster[]
   auditLogs                   AuditLog[]
+  bundleAssignments           UserBundleAssignment[]
 
   @@map("user_master")
 }
@@ -93,6 +97,7 @@ model DesignationMaster {
   company                     CompanyMaster @relation(fields: [companyId], references: [companyId])
   userAssignments             UserCompanyAssignment[]
   permissions                 DesignationPermission[]
+  bundles                     DesignationBundle[]
 
   @@map("designation_master")
 }
@@ -133,6 +138,7 @@ model PermissionMaster {
   companyAvailablePermissions CompanyAvailablePermission[]
   designationPermissions      DesignationPermission[]
   userOverrides               UserPermissionOverride[]
+  bundlePermissions           BundlePermission[]
 
   @@map("permission_master")
 }
@@ -267,6 +273,76 @@ model Invitation {
   @@index([token])
   @@index([companyId])
   @@map("invitations")
+}
+
+// ==================== PERMISSION BUNDLES (Reusable Permission Groups) ====================
+// These are like "templates" - a bundle of permissions that can be assigned to roles or users
+
+model PermissionBundle {
+  bundleId                    String   @id @default(uuid()) @map("bundle_id")
+  companyId                   String?  @map("company_id") // NULL = system bundle (available to all), otherwise company-specific
+  bundleName                  String   @map("bundle_name")
+  bundleDescription           String?  @map("bundle_description")
+  bundleStatus                String   @default("ACTIVE") @map("bundle_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  company                     CompanyMaster? @relation(fields: [companyId], references: [companyId])
+  permissions                 BundlePermission[]
+  designationBundles          DesignationBundle[]
+  userBundleAssignments       UserBundleAssignment[]
+
+  @@unique([companyId, bundleName]) // Unique name within company (or globally for system bundles)
+  @@map("permission_bundles")
+}
+
+model BundlePermission {
+  bundlePermissionId          String   @id @default(uuid()) @map("bundle_permission_id")
+  bundleId                    String   @map("bundle_id")
+  permissionId                String   @map("permission_id")
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  bundle                      PermissionBundle @relation(fields: [bundleId], references: [bundleId], onDelete: Cascade)
+  permission                  PermissionMaster @relation(fields: [permissionId], references: [permissionId])
+
+  @@unique([bundleId, permissionId])
+  @@map("bundle_permissions")
+}
+
+model DesignationBundle {
+  designationBundleId         String   @id @default(uuid()) @map("designation_bundle_id")
+  designationId               String   @map("designation_id")
+  bundleId                    String   @map("bundle_id")
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  designation                 DesignationMaster @relation(fields: [designationId], references: [designationId], onDelete: Cascade)
+  bundle                      PermissionBundle @relation(fields: [bundleId], references: [bundleId], onDelete: Cascade)
+
+  @@unique([designationId, bundleId])
+  @@map("designation_bundles")
+}
+
+model UserBundleAssignment {
+  userBundleAssignmentId      String   @id @default(uuid()) @map("user_bundle_assignment_id")
+  userId                      String   @map("user_id")
+  companyId                   String   @map("company_id")
+  companyRelationshipId       String?  @map("company_relationship_id") // Optional scope
+  bundleId                    String   @map("bundle_id")
+  assignmentStatus            String   @default("ACTIVE") @map("assignment_status")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user                        UserMaster @relation(fields: [userId], references: [userId])
+  company                     CompanyMaster @relation(fields: [companyId], references: [companyId])
+  companyRelationship         CompanyRelationship? @relation(fields: [companyRelationshipId], references: [companyRelationshipId])
+  bundle                      PermissionBundle @relation(fields: [bundleId], references: [bundleId])
+
+  @@unique([userId, companyId, companyRelationshipId, bundleId])
+  @@map("user_bundle_assignments")
 }
 
 // ==================== POLICIES (ABAC) ====================

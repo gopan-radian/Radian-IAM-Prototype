@@ -10,7 +10,12 @@ export interface UserContext {
 
 /**
  * Get user's permissions for a specific company context
- * Includes base permissions from role + any permission overrides
+ *
+ * Permission sources (in order of application):
+ * 1. Base permissions from role (DesignationPermission)
+ * 2. Permissions from bundles assigned to role (DesignationBundle)
+ * 3. Permissions from bundles assigned directly to user (UserBundleAssignment)
+ * 4. User permission overrides (ALLOW adds, DENY removes)
  */
 export async function getUserPermissions(
   userId: string,
@@ -33,6 +38,23 @@ export async function getUserPermissions(
               permission: true,
             },
           },
+          // Include bundles assigned to this designation/role
+          bundles: {
+            where: {
+              bundle: { bundleStatus: 'ACTIVE' },
+            },
+            include: {
+              bundle: {
+                include: {
+                  permissions: {
+                    include: {
+                      permission: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -45,7 +67,47 @@ export async function getUserPermissions(
     assignment.designation.permissions.map((dp) => dp.permission.permissionKey)
   );
 
-  // 3. Get user's permission overrides for this company
+  // 3. Add permissions from bundles assigned to the role
+  for (const designationBundle of assignment.designation.bundles) {
+    for (const bundlePermission of designationBundle.bundle.permissions) {
+      permissions.add(bundlePermission.permission.permissionKey);
+    }
+  }
+
+  // 4. Get bundles assigned directly to user for this company
+  const userBundles = await prisma.userBundleAssignment.findMany({
+    where: {
+      userId,
+      companyId,
+      assignmentStatus: 'ACTIVE',
+      bundle: { bundleStatus: 'ACTIVE' },
+      // Match relationship scope: null applies to all, specific matches specific
+      OR: [
+        { companyRelationshipId: null },
+        { companyRelationshipId: companyRelationshipId || null },
+      ],
+    },
+    include: {
+      bundle: {
+        include: {
+          permissions: {
+            include: {
+              permission: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // 5. Add permissions from user's directly assigned bundles
+  for (const userBundle of userBundles) {
+    for (const bundlePermission of userBundle.bundle.permissions) {
+      permissions.add(bundlePermission.permission.permissionKey);
+    }
+  }
+
+  // 6. Get user's permission overrides for this company
   const overrides = await prisma.userPermissionOverride.findMany({
     where: {
       userId,
@@ -62,7 +124,7 @@ export async function getUserPermissions(
     },
   });
 
-  // 4. Apply overrides (ALLOW adds, DENY removes)
+  // 7. Apply overrides (ALLOW adds, DENY removes)
   for (const override of overrides) {
     if (override.effect === 'ALLOW') {
       permissions.add(override.permission.permissionKey);
@@ -81,7 +143,8 @@ export async function getUserPermissions(
 export interface PermissionWithSource {
   permissionKey: string;
   permissionId: string;
-  source: 'ROLE' | 'OVERRIDE_ALLOW';
+  source: 'ROLE' | 'ROLE_BUNDLE' | 'USER_BUNDLE' | 'OVERRIDE_ALLOW';
+  sourceName?: string; // Bundle name if from bundle
   denied?: boolean;
   overrideReason?: string;
 }
@@ -109,6 +172,22 @@ export async function getUserPermissionsWithBreakdown(
               permission: true,
             },
           },
+          bundles: {
+            where: {
+              bundle: { bundleStatus: 'ACTIVE' },
+            },
+            include: {
+              bundle: {
+                include: {
+                  permissions: {
+                    include: {
+                      permission: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -132,6 +211,61 @@ export async function getUserPermissionsWithBreakdown(
     effectivePermissions.add(dp.permission.permissionKey);
   }
 
+  // Add permissions from bundles assigned to role
+  for (const designationBundle of assignment.designation.bundles) {
+    for (const bundlePermission of designationBundle.bundle.permissions) {
+      if (!effectivePermissions.has(bundlePermission.permission.permissionKey)) {
+        breakdown.push({
+          permissionKey: bundlePermission.permission.permissionKey,
+          permissionId: bundlePermission.permission.permissionId,
+          source: 'ROLE_BUNDLE',
+          sourceName: designationBundle.bundle.bundleName,
+        });
+        effectivePermissions.add(bundlePermission.permission.permissionKey);
+      }
+    }
+  }
+
+  // Get bundles assigned directly to user
+  const userBundles = await prisma.userBundleAssignment.findMany({
+    where: {
+      userId,
+      companyId,
+      assignmentStatus: 'ACTIVE',
+      bundle: { bundleStatus: 'ACTIVE' },
+      OR: [
+        { companyRelationshipId: null },
+        { companyRelationshipId: companyRelationshipId || null },
+      ],
+    },
+    include: {
+      bundle: {
+        include: {
+          permissions: {
+            include: {
+              permission: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  // Add permissions from user's directly assigned bundles
+  for (const userBundle of userBundles) {
+    for (const bundlePermission of userBundle.bundle.permissions) {
+      if (!effectivePermissions.has(bundlePermission.permission.permissionKey)) {
+        breakdown.push({
+          permissionKey: bundlePermission.permission.permissionKey,
+          permissionId: bundlePermission.permission.permissionId,
+          source: 'USER_BUNDLE',
+          sourceName: userBundle.bundle.bundleName,
+        });
+        effectivePermissions.add(bundlePermission.permission.permissionKey);
+      }
+    }
+  }
+
   // Get overrides
   const overrides = await prisma.userPermissionOverride.findMany({
     where: {
@@ -151,7 +285,7 @@ export async function getUserPermissionsWithBreakdown(
   // Apply overrides
   for (const override of overrides) {
     if (override.effect === 'ALLOW') {
-      // Only add to breakdown if not already from role
+      // Only add to breakdown if not already from role/bundle
       if (!effectivePermissions.has(override.permission.permissionKey)) {
         breakdown.push({
           permissionKey: override.permission.permissionKey,
@@ -257,14 +391,29 @@ export function hasAllPermissions(userPermissions: string[], requiredPermissions
  * This mirrors the config in src/config/permissions.ts for server-side use.
  */
 const PERMISSION_DEPENDENCIES: Record<string, string[]> = {
+  // Deals - you need to view before you can do anything else
   'deals.create': ['deals.view'],
   'deals.edit': ['deals.view'],
   'deals.delete': ['deals.view'],
-  'deals.approve': ['deals.view'],
+  'deals.submit': ['deals.view', 'deals.create'], // Submit requires create
+
+  // Deals - Merchant workflow (all require view)
+  'deals.review': ['deals.view'],
+  'deals.approve': ['deals.view', 'deals.review'], // Approve requires review
+  'deals.reject': ['deals.view', 'deals.review'], // Reject requires review
+  'deals.request_changes': ['deals.view', 'deals.review'], // Request changes requires review
+
+  // Reports
   'reports.export': ['reports.view'],
+
+  // Users - invite/manage require viewing
   'users.invite': ['users.view'],
   'users.manage': ['users.view'],
+
+  // Settings - managing requires viewing
   'roles.manage': ['roles.view'],
+
+  // Admin dependencies
   'admin.company_permissions': ['admin.companies'],
   'admin.relationships': ['admin.companies'],
 };
