@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { canAdminAssignPermissions } from '@/lib/permissions';
-
-interface PermissionOverride {
-  permissionId: string;
-  effect: 'ALLOW' | 'DENY';
-  reason?: string;
-}
 
 /**
  * GET /api/assignments?companyId=xxx
@@ -73,32 +66,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Also get permission overrides for each assignment
-    const assignmentsWithOverrides = await Promise.all(
-      assignments.map(async (assignment) => {
-        const overrides = await prisma.userPermissionOverride.findMany({
-          where: {
-            userId: assignment.userId,
-            companyId: assignment.companyId,
-            overrideStatus: 'ACTIVE',
-            OR: [
-              { companyRelationshipId: null },
-              { companyRelationshipId: assignment.companyRelationshipId },
-            ],
-          },
-          include: {
-            permission: true,
-          },
-        });
-
-        return {
-          ...assignment,
-          permissionOverrides: overrides,
-        };
-      })
-    );
-
-    return NextResponse.json(assignmentsWithOverrides);
+    return NextResponse.json(assignments);
   } catch (error) {
     console.error('Error fetching assignments:', error);
     return NextResponse.json(
@@ -120,21 +88,17 @@ export async function POST(request: NextRequest) {
       companyId,
       designationId,
       companyRelationshipId,
-      permissionOverrides,
-      adminUserId, // The admin making this assignment
     } = body as {
       userId: string;
       companyId: string;
       designationId: string;
       companyRelationshipId?: string;
-      permissionOverrides?: PermissionOverride[];
-      adminUserId: string;
     };
 
     // Validate required fields
-    if (!userId || !companyId || !designationId || !adminUserId) {
+    if (!userId || !companyId || !designationId) {
       return NextResponse.json(
-        { error: 'userId, companyId, designationId, and adminUserId are required' },
+        { error: 'userId, companyId, and designationId are required' },
         { status: 400 }
       );
     }
@@ -166,9 +130,6 @@ export async function POST(request: NextRequest) {
     // Verify designation exists and belongs to company
     const designation = await prisma.designationMaster.findUnique({
       where: { designationId },
-      include: {
-        permissions: true,
-      },
     });
 
     if (!designation || designation.companyId !== companyId) {
@@ -216,98 +177,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Collect all permission IDs being assigned (from role + overrides)
-    const rolePermissionIds = designation.permissions.map((p) => p.permissionId);
-    const allowOverrideIds = (permissionOverrides || [])
-      .filter((o) => o.effect === 'ALLOW')
-      .map((o) => o.permissionId);
-    const allPermissionIds = [...rolePermissionIds, ...allowOverrideIds];
-
-    // Verify admin has all permissions they are trying to assign
-    const { allowed, forbidden } = await canAdminAssignPermissions(
-      adminUserId,
-      companyId,
-      allPermissionIds
-    );
-
-    if (!allowed) {
-      return NextResponse.json(
-        {
-          error: 'You cannot assign permissions you do not have',
-          forbidden,
-        },
-        { status: 403 }
-      );
-    }
-
-    // Create assignment and overrides in transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create the assignment
-      const assignment = await tx.userCompanyAssignment.create({
-        data: {
-          userId,
-          companyId,
-          designationId,
-          companyRelationshipId: companyRelationshipId || null,
-          assignmentStatus: 'ACTIVE',
-        },
-        include: {
-          user: {
-            select: {
-              userId: true,
-              firstName: true,
-              lastName: true,
-              email: true,
-            },
+    // Create the assignment
+    const assignment = await prisma.userCompanyAssignment.create({
+      data: {
+        userId,
+        companyId,
+        designationId,
+        companyRelationshipId: companyRelationshipId || null,
+        assignmentStatus: 'ACTIVE',
+      },
+      include: {
+        user: {
+          select: {
+            userId: true,
+            firstName: true,
+            lastName: true,
+            email: true,
           },
-          designation: {
-            include: {
-              permissions: {
-                include: {
-                  permission: true,
-                },
+        },
+        designation: {
+          include: {
+            permissions: {
+              include: {
+                permission: true,
               },
             },
           },
-          companyRelationship: {
-            include: {
-              fromCompany: true,
-              toCompany: true,
-            },
+        },
+        companyRelationship: {
+          include: {
+            fromCompany: true,
+            toCompany: true,
           },
         },
-      });
-
-      // Create permission overrides if any
-      const createdOverrides = [];
-      if (permissionOverrides && permissionOverrides.length > 0) {
-        for (const override of permissionOverrides) {
-          const created = await tx.userPermissionOverride.create({
-            data: {
-              userId,
-              companyId,
-              companyRelationshipId: companyRelationshipId || null,
-              permissionId: override.permissionId,
-              effect: override.effect,
-              reason: override.reason || null,
-              overrideStatus: 'ACTIVE',
-              createdByUserId: adminUserId,
-            },
-            include: {
-              permission: true,
-            },
-          });
-          createdOverrides.push(created);
-        }
-      }
-
-      return {
-        ...assignment,
-        permissionOverrides: createdOverrides,
-      };
+      },
     });
 
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json(assignment, { status: 201 });
   } catch (error) {
     console.error('Error creating assignment:', error);
     return NextResponse.json(

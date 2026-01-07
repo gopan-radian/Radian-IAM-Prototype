@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { canAdminAssignPermissions, expandPermissionIds } from '@/lib/permissions';
 
 // GET - Get a single role by ID
 export async function GET(
@@ -53,7 +52,6 @@ export async function GET(
 }
 
 // PUT - Update a role
-// Enforces that admin can only assign permissions they have
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -61,10 +59,10 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { designationName, permissionIds, adminUserId } = body as {
+    const { designationName, designationDescription, permissionIds } = body as {
       designationName?: string;
+      designationDescription?: string;
       permissionIds?: string[];
-      adminUserId?: string;
     };
 
     // Check if role exists
@@ -78,45 +76,6 @@ export async function PUT(
         { error: 'Role not found' },
         { status: 404 }
       );
-    }
-
-    // Expand permissions to include dependencies
-    let expandedPermissionIds: string[] = [];
-    if (permissionIds !== undefined && permissionIds.length > 0) {
-      expandedPermissionIds = await expandPermissionIds(permissionIds);
-
-      const availablePermissions = await prisma.companyAvailablePermission.findMany({
-        where: { companyId: existing.companyId },
-      });
-      const availablePermissionIds = new Set(availablePermissions.map((p) => p.permissionId));
-
-      for (const permId of expandedPermissionIds) {
-        if (!availablePermissionIds.has(permId)) {
-          return NextResponse.json(
-            { error: 'One or more permissions (including required dependencies) are not available to this company' },
-            { status: 400 }
-          );
-        }
-      }
-
-      // If adminUserId provided, enforce that admin has all permissions they're assigning
-      if (adminUserId) {
-        const { allowed, forbidden } = await canAdminAssignPermissions(
-          adminUserId,
-          existing.companyId,
-          expandedPermissionIds
-        );
-
-        if (!allowed) {
-          return NextResponse.json(
-            {
-              error: 'You cannot assign permissions you do not have',
-              forbidden,
-            },
-            { status: 403 }
-          );
-        }
-      }
     }
 
     // Check for duplicate name if changing
@@ -140,25 +99,28 @@ export async function PUT(
 
     // Update in transaction
     await prisma.$transaction(async (tx) => {
-      // Update role name if provided
-      if (designationName) {
+      // Update role name/description if provided
+      if (designationName || designationDescription !== undefined) {
         await tx.designationMaster.update({
           where: { designationId: id },
-          data: { designationName },
+          data: {
+            ...(designationName && { designationName }),
+            ...(designationDescription !== undefined && { designationDescription }),
+          },
         });
       }
 
-      // Update permissions if provided (use expanded permissions)
+      // Update permissions if provided
       if (permissionIds !== undefined) {
         // Remove all existing permissions
         await tx.designationPermission.deleteMany({
           where: { designationId: id },
         });
 
-        // Add expanded permissions (includes dependencies)
-        if (expandedPermissionIds.length > 0) {
+        // Add new permissions
+        if (permissionIds.length > 0) {
           await tx.designationPermission.createMany({
-            data: expandedPermissionIds.map((permissionId: string) => ({
+            data: permissionIds.map((permissionId: string) => ({
               designationId: id,
               permissionId,
             })),

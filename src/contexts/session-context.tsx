@@ -56,6 +56,7 @@ export interface CurrentContext {
   designationId: string;
   designationName: string;
   permissions: string[];
+  services: string[];
 }
 
 interface SessionContextType {
@@ -90,18 +91,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // Set initial context to first assignment
         if (userSession.user.assignments.length > 0) {
           const firstAssignment = userSession.user.assignments[0];
+
+          // Build relationship name if exists
+          let relationshipName = null;
+          if (firstAssignment.companyRelationship) {
+            const rel = firstAssignment.companyRelationship;
+            relationshipName = `${rel.fromCompany.companyName} ↔ ${rel.toCompany.companyName}`;
+          }
+
           const context: CurrentContext = {
-            userId: firstAssignment.userId,
+            userId: userSession.user.userId,
             companyId: firstAssignment.companyId,
-            companyName: firstAssignment.company.companyName,
-            companyType: firstAssignment.company.companyType,
+            companyName: firstAssignment.companyName,
+            companyType: firstAssignment.companyType,
             companyRelationshipId: firstAssignment.companyRelationshipId,
-            relationshipName: firstAssignment.companyRelationship
-              ? `${firstAssignment.companyRelationship.fromCompany.companyName} ↔ ${firstAssignment.companyRelationship.toCompany.companyName}`
-              : null,
+            relationshipName,
             designationId: firstAssignment.designationId,
-            designationName: firstAssignment.designation.designationName,
-            permissions: firstAssignment.designation.permissions.map((p: any) => p.permission.permissionKey),
+            designationName: firstAssignment.designationName,
+            permissions: firstAssignment.permissions || [],
+            services: firstAssignment.services || [],
           };
           setCurrentContextState(context);
 

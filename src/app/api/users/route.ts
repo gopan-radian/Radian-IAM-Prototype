@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { canAdminAssignPermissions } from '@/lib/permissions';
 import bcrypt from 'bcryptjs';
-
-interface PermissionOverride {
-  permissionId: string;
-  effect: 'ALLOW' | 'DENY';
-  reason?: string;
-}
 
 // GET - List users (optionally filtered by company)
 export async function GET(request: NextRequest) {
@@ -75,7 +68,6 @@ export async function GET(request: NextRequest) {
 }
 
 // POST - Create a new user with company assignment
-// Supports permission overrides and returns 409 if email already exists
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -88,8 +80,6 @@ export async function POST(request: NextRequest) {
       companyId,
       designationId,
       companyRelationshipId,
-      permissionOverrides,
-      adminUserId,
     } = body as {
       firstName: string;
       lastName: string;
@@ -99,8 +89,6 @@ export async function POST(request: NextRequest) {
       companyId: string;
       designationId: string;
       companyRelationshipId?: string;
-      permissionOverrides?: PermissionOverride[];
-      adminUserId?: string;
     };
 
     // Validate required fields
@@ -152,9 +140,6 @@ export async function POST(request: NextRequest) {
     // Verify designation exists and belongs to company
     const designation = await prisma.designationMaster.findUnique({
       where: { designationId },
-      include: {
-        permissions: true,
-      },
     });
 
     if (!designation || designation.companyId !== companyId) {
@@ -185,35 +170,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // If adminUserId provided, enforce permission inheritance
-    if (adminUserId) {
-      const rolePermissionIds = designation.permissions.map((p) => p.permissionId);
-      const allowOverrideIds = (permissionOverrides || [])
-        .filter((o) => o.effect === 'ALLOW')
-        .map((o) => o.permissionId);
-      const allPermissionIds = [...rolePermissionIds, ...allowOverrideIds];
-
-      const { allowed, forbidden } = await canAdminAssignPermissions(
-        adminUserId,
-        companyId,
-        allPermissionIds
-      );
-
-      if (!allowed) {
-        return NextResponse.json(
-          {
-            error: 'You cannot assign permissions you do not have',
-            forbidden,
-          },
-          { status: 403 }
-        );
-      }
-    }
-
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user, assignment, and overrides in a transaction
+    // Create user and assignment in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Create user
       const user = await tx.userMaster.create({
@@ -238,27 +198,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Create permission overrides if any
-      const createdOverrides = [];
-      if (permissionOverrides && permissionOverrides.length > 0 && adminUserId) {
-        for (const override of permissionOverrides) {
-          const created = await tx.userPermissionOverride.create({
-            data: {
-              userId: user.userId,
-              companyId,
-              companyRelationshipId: companyRelationshipId || null,
-              permissionId: override.permissionId,
-              effect: override.effect,
-              reason: override.reason || null,
-              overrideStatus: 'ACTIVE',
-              createdByUserId: adminUserId,
-            },
-          });
-          createdOverrides.push(created);
-        }
-      }
-
-      return { user, assignment, overrides: createdOverrides };
+      return { user, assignment };
     });
 
     return NextResponse.json(
@@ -268,7 +208,6 @@ export async function POST(request: NextRequest) {
         lastName: result.user.lastName,
         email: result.user.email,
         assignmentId: result.assignment.userCompanyAssignmentId,
-        overridesCreated: result.overrides.length,
       },
       { status: 201 }
     );
