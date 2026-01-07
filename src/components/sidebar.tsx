@@ -72,17 +72,6 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Permission Debug */}
-      <div className="p-3 bg-gray-800 rounded-lg text-xs border border-gray-700">
-        <p className="text-gray-400 mb-2 font-semibold">Your Permissions:</p>
-        <div className="space-y-1 max-h-40 overflow-auto">
-          {currentContext?.permissions.map((p) => (
-            <span key={p} className="block text-green-400 text-xs">
-              ✓ {p}
-            </span>
-          ))}
-        </div>
-      </div>
     </aside>
   );
 }
