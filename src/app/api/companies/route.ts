@@ -10,7 +10,7 @@ export async function GET() {
           select: {
             userAssignments: true,
             designations: true,
-            availablePermissions: true,
+            services: true,
           },
         },
         relationshipsAsFrom: {

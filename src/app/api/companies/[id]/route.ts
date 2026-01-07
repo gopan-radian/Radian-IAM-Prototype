@@ -19,9 +19,9 @@ export async function GET(
             },
           },
         },
-        availablePermissions: {
+        services: {
           include: {
-            permission: true,
+            service: true,
           },
         },
         relationshipsAsFrom: {

@@ -38,7 +38,7 @@ const NAVIGATION: NavItem[] = [
     permission: 'admin.companies',
     children: [
       { path: '/admin/companies', label: 'Companies', icon: 'building', permission: 'admin.companies' },
-      { path: '/admin/company-permissions', label: 'Company Permissions', icon: 'key', permission: 'admin.company_permissions' },
+      { path: '/admin/services', label: 'Company Services', icon: 'key', permission: 'admin.services' },
       { path: '/admin/relationships', label: 'Relationships', icon: 'link', permission: 'admin.relationships' },
     ],
   },

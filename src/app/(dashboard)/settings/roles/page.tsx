@@ -115,16 +115,15 @@ export default function RolesPage() {
   const fetchAvailablePermissions = async () => {
     if (!companyId) return;
     try {
-      const response = await fetch(`/api/company-permissions?companyId=${companyId}`);
+      const response = await fetch('/api/permissions');
       if (!response.ok) throw new Error('Failed to fetch permissions');
       const data = await response.json();
-      const granted = data.permissions
-        .filter((p: { isGranted: boolean }) => p.isGranted)
-        .map((p: Permission) => ({
-          ...p,
-          isSelected: false,
-        }));
-      setAvailablePermissions(granted);
+      // All permissions are available in simplified model
+      const permissions = (data.permissions || []).map((p: Permission) => ({
+        ...p,
+        isSelected: false,
+      }));
+      setAvailablePermissions(permissions);
     } catch (err) {
       console.error('Failed to fetch permissions:', err);
     }

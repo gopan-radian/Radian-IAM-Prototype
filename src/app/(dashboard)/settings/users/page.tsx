@@ -147,12 +147,11 @@ export default function UsersPage() {
   const fetchAvailablePermissions = async () => {
     if (!companyId) return;
     try {
-      const response = await fetch(`/api/company-permissions?companyId=${companyId}`);
+      const response = await fetch('/api/permissions');
       if (!response.ok) throw new Error('Failed to fetch permissions');
       const data = await response.json();
-      // Get only granted permissions
-      const granted = data.permissions.filter((p: { isGranted: boolean }) => p.isGranted);
-      setAvailablePermissions(granted);
+      // All permissions are available in simplified model
+      setAvailablePermissions(data.permissions || []);
     } catch (err) {
       console.error('Failed to fetch permissions:', err);
     }

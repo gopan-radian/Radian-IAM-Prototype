@@ -8,13 +8,15 @@ export function ContextSwitcher() {
   const { userAssignments, currentContext, setCurrentContext } = useContext(SessionContext);
   const [isOpen, setIsOpen] = useState(false);
 
-  // Group assignments by company
-  const companiesMap = new Map<string, { company: any; assignments: any[] }>();
+  // Group assignments by company (using flat structure from auth)
+  const companiesMap = new Map<string, { companyId: string; companyName: string; companyType: string; assignments: any[] }>();
   userAssignments.forEach((a) => {
     const key = a.companyId;
     if (!companiesMap.has(key)) {
       companiesMap.set(key, {
-        company: a.company,
+        companyId: a.companyId,
+        companyName: a.companyName,
+        companyType: a.companyType,
         assignments: [],
       });
     }
@@ -22,18 +24,24 @@ export function ContextSwitcher() {
   });
 
   const handleSelect = async (assignment: any) => {
+    // Build relationship name if exists
+    let relationshipName = null;
+    if (assignment.companyRelationship) {
+      const rel = assignment.companyRelationship;
+      relationshipName = `${rel.fromCompany.companyName} ↔ ${rel.toCompany.companyName}`;
+    }
+
     await setCurrentContext({
-      userId: assignment.userId,
+      userId: currentContext?.userId || '',
       companyId: assignment.companyId,
-      companyName: assignment.company.companyName,
-      companyType: assignment.company.companyType,
+      companyName: assignment.companyName,
+      companyType: assignment.companyType,
       companyRelationshipId: assignment.companyRelationshipId,
-      relationshipName: assignment.companyRelationship
-        ? `${assignment.companyRelationship.fromCompany.companyName} ↔ ${assignment.companyRelationship.toCompany.companyName}`
-        : null,
+      relationshipName,
       designationId: assignment.designationId,
-      designationName: assignment.designation.designationName,
-      permissions: assignment.designation.permissions.map((p: any) => p.permission.permissionKey),
+      designationName: assignment.designationName,
+      permissions: assignment.permissions || [],
+      services: assignment.services || [],
     });
     setIsOpen(false);
   };
@@ -56,13 +64,13 @@ export function ContextSwitcher() {
 
       {isOpen && (
         <div className="absolute top-full mt-2 w-96 bg-white border border-gray-300 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
-          {Array.from(companiesMap.values()).map(({ company, assignments }) => (
+          {Array.from(companiesMap.values()).map((company) => (
             <div key={company.companyId} className="border-b last:border-b-0">
               <div className="px-4 py-3 bg-gray-50 font-semibold text-sm border-b">
                 {company.companyName}
                 <span className="ml-2 text-xs text-gray-500 font-normal">({company.companyType})</span>
               </div>
-              {assignments.map((a: any) => (
+              {company.assignments.map((a: any) => (
                 <button
                   key={a.userCompanyAssignmentId}
                   onClick={() => handleSelect(a)}
@@ -73,7 +81,7 @@ export function ContextSwitcher() {
                       : ''
                   }`}
                 >
-                  <div className="font-medium text-sm text-gray-900">{a.designation.designationName}</div>
+                  <div className="font-medium text-sm text-gray-900">{a.designationName}</div>
                   {a.companyRelationship && (
                     <div className="text-xs text-gray-500 mt-1">
                       Scope: {a.companyRelationship.fromCompany.companyName} ↔{' '}

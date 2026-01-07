@@ -59,7 +59,10 @@ export default function DashboardLayout({
                   <p className="text-gray-500">{session?.user?.email}</p>
                 </div>
                 <button
-                  onClick={() => signOut({ redirect: true, callbackUrl: '/login' })}
+                  onClick={async () => {
+                    await signOut({ redirect: false });
+                    router.push('/login');
+                  }}
                   className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600 hover:text-gray-900"
                   title="Sign out"
                 >
