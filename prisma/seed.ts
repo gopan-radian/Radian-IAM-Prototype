@@ -11,44 +11,66 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
+  // ==================== SERVICES ====================
+  const services = [
+    { key: 'deal_portal', name: 'Deal Portal', description: 'Access to create, manage, and process deals' },
+    { key: 'reports', name: 'Reports', description: 'Access to view and export reports' },
+    { key: 'analytics', name: 'Analytics', description: 'Access to analytics dashboards' },
+    { key: 'user_management', name: 'User Management', description: 'Ability to manage users within the company' },
+  ];
+
+  const serviceRecords = await Promise.all(
+    services.map((s) =>
+      prisma.serviceMaster.upsert({
+        where: { serviceKey: s.key },
+        update: { serviceName: s.name, serviceDescription: s.description },
+        create: {
+          serviceKey: s.key,
+          serviceName: s.name,
+          serviceDescription: s.description,
+        },
+      })
+    )
+  );
+
+  console.log(`✅ Created ${serviceRecords.length} services`);
+
   // ==================== PERMISSIONS ====================
   const permissions = [
-    // DEALS - Basic
-    { key: 'deals.view', description: 'View deals', category: 'DEALS' },
-    { key: 'deals.create', description: 'Create new deals (Supplier)', category: 'DEALS' },
-    { key: 'deals.edit', description: 'Edit existing deals', category: 'DEALS' },
-    { key: 'deals.delete', description: 'Delete deals', category: 'DEALS' },
-    // DEALS - Workflow (Supplier)
-    { key: 'deals.submit', description: 'Submit deals for review (Supplier)', category: 'DEALS' },
-    // DEALS - Workflow (Merchant)
-    { key: 'deals.review', description: 'Review submitted deals (Merchant)', category: 'DEALS' },
-    { key: 'deals.approve', description: 'Approve deals (Merchant)', category: 'DEALS' },
-    { key: 'deals.reject', description: 'Reject deals (Merchant)', category: 'DEALS' },
-    { key: 'deals.request_changes', description: 'Request changes on deals (Merchant)', category: 'DEALS' },
+    // DEALS
+    { key: 'deals.view', name: 'View Deals', description: 'View deals', category: 'DEALS' },
+    { key: 'deals.create', name: 'Create Deals', description: 'Create new deals', category: 'DEALS' },
+    { key: 'deals.edit', name: 'Edit Deals', description: 'Edit existing deals', category: 'DEALS' },
+    { key: 'deals.delete', name: 'Delete Deals', description: 'Delete deals', category: 'DEALS' },
+    { key: 'deals.submit', name: 'Submit Deals', description: 'Submit deals for review', category: 'DEALS' },
+    { key: 'deals.review', name: 'Review Deals', description: 'Review submitted deals', category: 'DEALS' },
+    { key: 'deals.approve', name: 'Approve Deals', description: 'Approve deals', category: 'DEALS' },
+    { key: 'deals.reject', name: 'Reject Deals', description: 'Reject deals', category: 'DEALS' },
     // REPORTS
-    { key: 'reports.view', description: 'View reports', category: 'REPORTS' },
-    { key: 'reports.export', description: 'Export reports to CSV/PDF', category: 'REPORTS' },
+    { key: 'reports.view', name: 'View Reports', description: 'View reports', category: 'REPORTS' },
+    { key: 'reports.export', name: 'Export Reports', description: 'Export reports to CSV/PDF', category: 'REPORTS' },
     // USERS
-    { key: 'users.view', description: 'View users in company', category: 'USERS' },
-    { key: 'users.invite', description: 'Invite new users', category: 'USERS' },
-    { key: 'users.manage', description: 'Edit/deactivate users', category: 'USERS' },
+    { key: 'users.view', name: 'View Users', description: 'View users in company', category: 'USERS' },
+    { key: 'users.invite', name: 'Invite Users', description: 'Invite new users', category: 'USERS' },
+    { key: 'users.manage', name: 'Manage Users', description: 'Edit/deactivate users', category: 'USERS' },
     // SETTINGS
-    { key: 'roles.view', description: 'View roles', category: 'SETTINGS' },
-    { key: 'roles.manage', description: 'Create/edit roles', category: 'SETTINGS' },
-    { key: 'company.settings', description: 'Manage company settings', category: 'SETTINGS' },
+    { key: 'roles.view', name: 'View Roles', description: 'View roles', category: 'SETTINGS' },
+    { key: 'roles.manage', name: 'Manage Roles', description: 'Create/edit roles', category: 'SETTINGS' },
+    { key: 'company.settings', name: 'Company Settings', description: 'Manage company settings', category: 'SETTINGS' },
     // ADMIN (Radian only)
-    { key: 'admin.companies', description: 'Manage all companies', category: 'ADMIN' },
-    { key: 'admin.company_permissions', description: 'Grant permissions to companies', category: 'ADMIN' },
-    { key: 'admin.relationships', description: 'Manage company relationships', category: 'ADMIN' },
+    { key: 'admin.companies', name: 'Manage Companies', description: 'Manage all companies', category: 'ADMIN' },
+    { key: 'admin.services', name: 'Manage Services', description: 'Grant services to companies', category: 'ADMIN' },
+    { key: 'admin.relationships', name: 'Manage Relationships', description: 'Manage company relationships', category: 'ADMIN' },
   ];
 
   const permissionRecords = await Promise.all(
     permissions.map((p) =>
       prisma.permissionMaster.upsert({
         where: { permissionKey: p.key },
-        update: {},
+        update: { permissionName: p.name, permissionDescription: p.description },
         create: {
           permissionKey: p.key,
+          permissionName: p.name,
           permissionDescription: p.description,
           permissionCategory: p.category,
         },
@@ -57,9 +79,6 @@ async function main() {
   );
 
   console.log(`✅ Created ${permissionRecords.length} permissions`);
-
-  // Note: Routes are no longer stored in the database.
-  // UI routes and their permission requirements are defined in src/config/permissions.ts
 
   // ==================== COMPANIES ====================
   const companies = {
@@ -101,6 +120,44 @@ async function main() {
   };
 
   console.log(`✅ Created ${Object.keys(companies).length} companies`);
+
+  // ==================== COMPANY SERVICES ====================
+  // Helper to enable services for a company
+  const enableServices = async (companyId: string, serviceKeys: string[]) => {
+    for (const key of serviceKeys) {
+      const service = serviceRecords.find((s) => s.serviceKey === key);
+      if (service) {
+        await prisma.companyService.upsert({
+          where: { companyId_serviceId: { companyId, serviceId: service.serviceId } },
+          update: { isEnabled: true },
+          create: { companyId, serviceId: service.serviceId, isEnabled: true },
+        });
+      }
+    }
+  };
+
+  // Radian gets all services
+  await enableServices(companies.radian.companyId, ['deal_portal', 'reports', 'analytics', 'user_management']);
+
+  // FreshThyme gets all services (premium client)
+  await enableServices(companies.freshthyme.companyId, ['deal_portal', 'reports', 'analytics', 'user_management']);
+
+  // Kroger gets all services
+  await enableServices(companies.kroger.companyId, ['deal_portal', 'reports', 'analytics', 'user_management']);
+
+  // Coke gets deal portal, reports, user management (no analytics)
+  await enableServices(companies.coke.companyId, ['deal_portal', 'reports', 'user_management']);
+
+  // KeHE gets basic services (non-client)
+  await enableServices(companies.kehe.companyId, ['deal_portal', 'reports']);
+
+  // Belvita gets deal portal, reports, user management
+  await enableServices(companies.belvita.companyId, ['deal_portal', 'reports', 'user_management']);
+
+  // ABC Brokers gets deal portal and reports
+  await enableServices(companies.abcBrokers.companyId, ['deal_portal', 'reports']);
+
+  console.log('✅ Assigned services to companies');
 
   // ==================== COMPANY RELATIONSHIPS ====================
   const relationships = {
@@ -186,273 +243,7 @@ async function main() {
     }),
   };
 
-  // Clean up any old broker-merchant relationships that shouldn't exist
-  await prisma.userCompanyAssignment.deleteMany({
-    where: {
-      companyRelationshipId: { in: ['abc-ftm-id', 'abc-kroger-id'] }
-    }
-  });
-  await prisma.companyRelationship.deleteMany({
-    where: { companyRelationshipId: { in: ['abc-ftm-id', 'abc-kroger-id'] } }
-  });
-
   console.log(`✅ Created ${Object.keys(relationships).length} company relationships`);
-
-  // ==================== COMPANY AVAILABLE PERMISSIONS ====================
-  // Radian gets ALL permissions
-  for (const p of permissionRecords) {
-    await prisma.companyAvailablePermission.upsert({
-      where: { companyId_permissionId: { companyId: companies.radian.companyId, permissionId: p.permissionId } },
-      update: {},
-      create: {
-        companyId: companies.radian.companyId,
-        permissionId: p.permissionId,
-      },
-    });
-  }
-
-  // FreshThyme gets good permissions (premium client)
-  const ftmPermissions = ['deals.view', 'deals.create', 'deals.edit', 'deals.approve', 'reports.view', 'reports.export', 'users.view', 'users.invite', 'users.manage', 'roles.view', 'roles.manage'];
-  for (const key of ftmPermissions) {
-    const p = permissionRecords.find((p) => p.permissionKey === key);
-    if (p) {
-      await prisma.companyAvailablePermission.upsert({
-        where: { companyId_permissionId: { companyId: companies.freshthyme.companyId, permissionId: p.permissionId } },
-        update: {},
-        create: {
-          companyId: companies.freshthyme.companyId,
-          permissionId: p.permissionId,
-        },
-      });
-    }
-  }
-
-  // Kroger gets similar permissions
-  for (const key of ftmPermissions) {
-    const p = permissionRecords.find((p) => p.permissionKey === key);
-    if (p) {
-      await prisma.companyAvailablePermission.upsert({
-        where: { companyId_permissionId: { companyId: companies.kroger.companyId, permissionId: p.permissionId } },
-        update: {},
-        create: {
-          companyId: companies.kroger.companyId,
-          permissionId: p.permissionId,
-        },
-      });
-    }
-  }
-
-  // Coke gets limited permissions (no export)
-  const cokePermissions = ['deals.view', 'deals.create', 'deals.edit', 'reports.view', 'users.view', 'users.invite', 'roles.view'];
-  for (const key of cokePermissions) {
-    const p = permissionRecords.find((p) => p.permissionKey === key);
-    if (p) {
-      await prisma.companyAvailablePermission.upsert({
-        where: { companyId_permissionId: { companyId: companies.coke.companyId, permissionId: p.permissionId } },
-        update: {},
-        create: {
-          companyId: companies.coke.companyId,
-          permissionId: p.permissionId,
-        },
-      });
-    }
-  }
-
-  // KeHE gets supplier permissions (non-client but still a supplier)
-  const kehePermissions = ['deals.view', 'deals.create', 'deals.edit', 'reports.view'];
-  for (const key of kehePermissions) {
-    const p = permissionRecords.find((p) => p.permissionKey === key);
-    if (p) {
-      await prisma.companyAvailablePermission.upsert({
-        where: { companyId_permissionId: { companyId: companies.kehe.companyId, permissionId: p.permissionId } },
-        update: {},
-        create: {
-          companyId: companies.kehe.companyId,
-          permissionId: p.permissionId,
-        },
-      });
-    }
-  }
-
-  // Belvita
-  for (const key of cokePermissions) {
-    const p = permissionRecords.find((p) => p.permissionKey === key);
-    if (p) {
-      await prisma.companyAvailablePermission.upsert({
-        where: { companyId_permissionId: { companyId: companies.belvita.companyId, permissionId: p.permissionId } },
-        update: {},
-        create: {
-          companyId: companies.belvita.companyId,
-          permissionId: p.permissionId,
-        },
-      });
-    }
-  }
-
-  // ABC Brokers
-  const brokerPermissions = ['deals.view', 'deals.create', 'deals.edit', 'reports.view', 'users.view'];
-  for (const key of brokerPermissions) {
-    const p = permissionRecords.find((p) => p.permissionKey === key);
-    if (p) {
-      await prisma.companyAvailablePermission.upsert({
-        where: { companyId_permissionId: { companyId: companies.abcBrokers.companyId, permissionId: p.permissionId } },
-        update: {},
-        create: {
-          companyId: companies.abcBrokers.companyId,
-          permissionId: p.permissionId,
-        },
-      });
-    }
-  }
-
-  console.log('✅ Assigned company available permissions');
-
-  // ==================== SYSTEM PERMISSION BUNDLES ====================
-  // These are Radian-defined bundles available to all companies
-  const systemBundles = [
-    // Viewer bundles
-    {
-      id: 'bundle-viewer-deals',
-      name: 'Deal Viewer',
-      description: 'Can view deals and related information',
-      permissions: ['deals.view'],
-    },
-    {
-      id: 'bundle-viewer-full',
-      name: 'Full Viewer',
-      description: 'Read-only access to deals, reports, and users',
-      permissions: ['deals.view', 'reports.view', 'users.view'],
-    },
-    // Supplier bundles
-    {
-      id: 'bundle-supplier-contributor',
-      name: 'Supplier - Deal Contributor',
-      description: 'Can create, edit and submit deals (Supplier)',
-      permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.submit'],
-    },
-    {
-      id: 'bundle-supplier-admin',
-      name: 'Supplier - Deal Admin',
-      description: 'Full supplier deal management including deletion',
-      permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.submit'],
-    },
-    // Merchant bundles
-    {
-      id: 'bundle-merchant-reviewer',
-      name: 'Merchant - Deal Reviewer',
-      description: 'Can review and request changes on deals (Merchant)',
-      permissions: ['deals.view', 'deals.review', 'deals.request_changes'],
-    },
-    {
-      id: 'bundle-merchant-approver',
-      name: 'Merchant - Deal Approver',
-      description: 'Can review, approve, and reject deals (Merchant)',
-      permissions: ['deals.view', 'deals.review', 'deals.approve', 'deals.reject', 'deals.request_changes'],
-    },
-    // User management bundles
-    {
-      id: 'bundle-user-inviter',
-      name: 'User Inviter',
-      description: 'Can view and invite users',
-      permissions: ['users.view', 'users.invite'],
-    },
-    {
-      id: 'bundle-user-manager',
-      name: 'User Manager',
-      description: 'Full user management',
-      permissions: ['users.view', 'users.invite', 'users.manage'],
-    },
-    // Role-based bundles
-    {
-      id: 'bundle-role-basic',
-      name: 'Basic User',
-      description: 'View deals and reports',
-      permissions: ['deals.view', 'reports.view'],
-    },
-    {
-      id: 'bundle-role-standard',
-      name: 'Standard User',
-      description: 'Create deals, view reports',
-      permissions: ['deals.view', 'deals.create', 'reports.view'],
-    },
-    {
-      id: 'bundle-role-admin',
-      name: 'Company Admin',
-      description: 'Full access to deals, reports, users, and settings',
-      permissions: [
-        'deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.submit',
-        'deals.review', 'deals.approve', 'deals.reject', 'deals.request_changes',
-        'reports.view', 'reports.export',
-        'users.view', 'users.invite', 'users.manage',
-        'roles.view', 'roles.manage',
-        'company.settings',
-      ],
-    },
-    // Radian-specific bundles
-    {
-      id: 'bundle-radian-support',
-      name: 'Radian Support',
-      description: 'Support specialist access',
-      permissions: ['deals.view', 'reports.view', 'users.view'],
-    },
-    {
-      id: 'bundle-radian-account-manager',
-      name: 'Radian Account Manager',
-      description: 'Account manager with admin capabilities',
-      permissions: [
-        'deals.view', 'deals.create', 'deals.edit', 'deals.submit',
-        'deals.review', 'deals.approve',
-        'reports.view', 'reports.export',
-        'users.view', 'users.invite',
-        'admin.companies', 'admin.company_permissions', 'admin.relationships',
-      ],
-    },
-    {
-      id: 'bundle-radian-super-admin',
-      name: 'Radian Super Admin',
-      description: 'Full system access',
-      permissions: permissions.map((p) => p.key),
-    },
-  ];
-
-  for (const bundle of systemBundles) {
-    // Create the bundle (system bundles have no companyId)
-    const bundleRecord = await prisma.permissionBundle.upsert({
-      where: { bundleId: bundle.id },
-      update: {
-        bundleName: bundle.name,
-        bundleDescription: bundle.description,
-      },
-      create: {
-        bundleId: bundle.id,
-        companyId: null, // System bundle
-        bundleName: bundle.name,
-        bundleDescription: bundle.description,
-      },
-    });
-
-    // Add permissions to bundle
-    for (const permKey of bundle.permissions) {
-      const perm = permissionRecords.find((p) => p.permissionKey === permKey);
-      if (perm) {
-        await prisma.bundlePermission.upsert({
-          where: {
-            bundleId_permissionId: {
-              bundleId: bundleRecord.bundleId,
-              permissionId: perm.permissionId,
-            },
-          },
-          update: {},
-          create: {
-            bundleId: bundleRecord.bundleId,
-            permissionId: perm.permissionId,
-          },
-        });
-      }
-    }
-  }
-
-  console.log(`✅ Created ${systemBundles.length} system permission bundles`);
 
   // ==================== DESIGNATIONS (ROLES) ====================
   const designations = {
@@ -460,71 +251,71 @@ async function main() {
     radianSuperAdmin: await prisma.designationMaster.upsert({
       where: { designationId: 'radian-super-admin' },
       update: {},
-      create: { designationId: 'radian-super-admin', companyId: companies.radian.companyId, designationName: 'Super Admin' },
+      create: { designationId: 'radian-super-admin', companyId: companies.radian.companyId, designationName: 'Super Admin', designationDescription: 'Full system access' },
     }),
     radianAccountManager: await prisma.designationMaster.upsert({
       where: { designationId: 'radian-account-mgr' },
       update: {},
-      create: { designationId: 'radian-account-mgr', companyId: companies.radian.companyId, designationName: 'Account Manager' },
+      create: { designationId: 'radian-account-mgr', companyId: companies.radian.companyId, designationName: 'Account Manager', designationDescription: 'Manages client accounts' },
     }),
     radianSupport: await prisma.designationMaster.upsert({
       where: { designationId: 'radian-support' },
       update: {},
-      create: { designationId: 'radian-support', companyId: companies.radian.companyId, designationName: 'Support Specialist' },
+      create: { designationId: 'radian-support', companyId: companies.radian.companyId, designationName: 'Support Specialist', designationDescription: 'Read-only support access' },
     }),
     // FreshThyme roles
     ftmAdmin: await prisma.designationMaster.upsert({
       where: { designationId: 'ftm-admin' },
       update: {},
-      create: { designationId: 'ftm-admin', companyId: companies.freshthyme.companyId, designationName: 'Admin' },
+      create: { designationId: 'ftm-admin', companyId: companies.freshthyme.companyId, designationName: 'Admin', designationDescription: 'Full company admin access' },
     }),
     ftmCategoryManager: await prisma.designationMaster.upsert({
       where: { designationId: 'ftm-cat-mgr' },
       update: {},
-      create: { designationId: 'ftm-cat-mgr', companyId: companies.freshthyme.companyId, designationName: 'Category Manager' },
+      create: { designationId: 'ftm-cat-mgr', companyId: companies.freshthyme.companyId, designationName: 'Category Manager', designationDescription: 'Manages deals and reports' },
     }),
     ftmBuyer: await prisma.designationMaster.upsert({
       where: { designationId: 'ftm-buyer' },
       update: {},
-      create: { designationId: 'ftm-buyer', companyId: companies.freshthyme.companyId, designationName: 'Buyer' },
+      create: { designationId: 'ftm-buyer', companyId: companies.freshthyme.companyId, designationName: 'Buyer', designationDescription: 'Creates and views deals' },
     }),
     // Coke roles
     cokeAdmin: await prisma.designationMaster.upsert({
       where: { designationId: 'coke-admin' },
       update: {},
-      create: { designationId: 'coke-admin', companyId: companies.coke.companyId, designationName: 'Admin' },
+      create: { designationId: 'coke-admin', companyId: companies.coke.companyId, designationName: 'Admin', designationDescription: 'Full company admin access' },
     }),
     cokeSalesManager: await prisma.designationMaster.upsert({
       where: { designationId: 'coke-sales-mgr' },
       update: {},
-      create: { designationId: 'coke-sales-mgr', companyId: companies.coke.companyId, designationName: 'Sales Manager' },
+      create: { designationId: 'coke-sales-mgr', companyId: companies.coke.companyId, designationName: 'Sales Manager', designationDescription: 'Manages sales team and deals' },
     }),
     cokeSalesRep: await prisma.designationMaster.upsert({
       where: { designationId: 'coke-sales-rep' },
       update: {},
-      create: { designationId: 'coke-sales-rep', companyId: companies.coke.companyId, designationName: 'Sales Rep' },
+      create: { designationId: 'coke-sales-rep', companyId: companies.coke.companyId, designationName: 'Sales Rep', designationDescription: 'Creates deals for merchants' },
     }),
-    // KeHE roles (minimal)
+    // KeHE roles
     keheAdmin: await prisma.designationMaster.upsert({
       where: { designationId: 'kehe-admin' },
       update: {},
-      create: { designationId: 'kehe-admin', companyId: companies.kehe.companyId, designationName: 'Admin' },
+      create: { designationId: 'kehe-admin', companyId: companies.kehe.companyId, designationName: 'Admin', designationDescription: 'Full company admin access' },
     }),
     keheCoordinator: await prisma.designationMaster.upsert({
       where: { designationId: 'kehe-coord' },
       update: {},
-      create: { designationId: 'kehe-coord', companyId: companies.kehe.companyId, designationName: 'Coordinator' },
+      create: { designationId: 'kehe-coord', companyId: companies.kehe.companyId, designationName: 'Coordinator', designationDescription: 'Coordinates deals' },
     }),
     // ABC Brokers roles
     abcAdmin: await prisma.designationMaster.upsert({
       where: { designationId: 'abc-admin' },
       update: {},
-      create: { designationId: 'abc-admin', companyId: companies.abcBrokers.companyId, designationName: 'Admin' },
+      create: { designationId: 'abc-admin', companyId: companies.abcBrokers.companyId, designationName: 'Admin', designationDescription: 'Full company admin access' },
     }),
     abcDealCoordinator: await prisma.designationMaster.upsert({
       where: { designationId: 'abc-deal-coord' },
       update: {},
-      create: { designationId: 'abc-deal-coord', companyId: companies.abcBrokers.companyId, designationName: 'Deal Coordinator' },
+      create: { designationId: 'abc-deal-coord', companyId: companies.abcBrokers.companyId, designationName: 'Deal Coordinator', designationDescription: 'Coordinates deals for suppliers' },
     }),
   };
 
@@ -552,7 +343,7 @@ async function main() {
     'deals.view', 'deals.create', 'deals.edit', 'deals.approve',
     'reports.view', 'reports.export',
     'users.view', 'users.invite',
-    'admin.companies', 'admin.company_permissions', 'admin.relationships',
+    'admin.companies', 'admin.services', 'admin.relationships',
   ]);
 
   // Radian Support
@@ -560,41 +351,64 @@ async function main() {
     'deals.view', 'reports.view', 'users.view',
   ]);
 
-  // FTM Admin
-  await assignPermissionsToRole(designations.ftmAdmin.designationId, ftmPermissions);
+  // FTM Admin - full access within company
+  await assignPermissionsToRole(designations.ftmAdmin.designationId, [
+    'deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.approve', 'deals.reject', 'deals.review',
+    'reports.view', 'reports.export',
+    'users.view', 'users.invite', 'users.manage',
+    'roles.view', 'roles.manage',
+    'company.settings',
+  ]);
 
-  // FTM Category Manager
+  // FTM Category Manager - can manage deals and reports
   await assignPermissionsToRole(designations.ftmCategoryManager.designationId, [
-    'deals.view', 'deals.create', 'deals.edit', 'deals.approve',
+    'deals.view', 'deals.create', 'deals.edit', 'deals.approve', 'deals.review',
     'reports.view', 'reports.export',
   ]);
 
-  // FTM Buyer
+  // FTM Buyer - limited access
   await assignPermissionsToRole(designations.ftmBuyer.designationId, [
     'deals.view', 'deals.create', 'reports.view',
   ]);
 
   // Coke Admin
-  await assignPermissionsToRole(designations.cokeAdmin.designationId, cokePermissions);
+  await assignPermissionsToRole(designations.cokeAdmin.designationId, [
+    'deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.submit',
+    'reports.view',
+    'users.view', 'users.invite', 'users.manage',
+    'roles.view', 'roles.manage',
+    'company.settings',
+  ]);
 
   // Coke Sales Manager
   await assignPermissionsToRole(designations.cokeSalesManager.designationId, [
-    'deals.view', 'deals.create', 'deals.edit', 'reports.view', 'users.view',
+    'deals.view', 'deals.create', 'deals.edit', 'deals.submit',
+    'reports.view',
+    'users.view',
   ]);
 
   // Coke Sales Rep
   await assignPermissionsToRole(designations.cokeSalesRep.designationId, [
-    'deals.view', 'deals.create',
+    'deals.view', 'deals.create', 'deals.submit',
   ]);
 
   // KeHE Admin
-  await assignPermissionsToRole(designations.keheAdmin.designationId, kehePermissions);
+  await assignPermissionsToRole(designations.keheAdmin.designationId, [
+    'deals.view', 'deals.create', 'deals.edit',
+    'reports.view',
+  ]);
 
-  // KeHE Coordinator - can create and edit deals
-  await assignPermissionsToRole(designations.keheCoordinator.designationId, ['deals.view', 'deals.create', 'deals.edit']);
+  // KeHE Coordinator
+  await assignPermissionsToRole(designations.keheCoordinator.designationId, [
+    'deals.view', 'deals.create', 'deals.edit',
+  ]);
 
   // ABC Brokers Admin
-  await assignPermissionsToRole(designations.abcAdmin.designationId, brokerPermissions);
+  await assignPermissionsToRole(designations.abcAdmin.designationId, [
+    'deals.view', 'deals.create', 'deals.edit',
+    'reports.view',
+    'users.view',
+  ]);
 
   // ABC Deal Coordinator
   await assignPermissionsToRole(designations.abcDealCoordinator.designationId, [
@@ -687,23 +501,23 @@ async function main() {
     { user: users.rahul, company: companies.radian, designation: designations.radianSuperAdmin, id: 'uca-rahul' },
     { user: users.priya, company: companies.radian, designation: designations.radianAccountManager, id: 'uca-priya' },
     { user: users.amit, company: companies.radian, designation: designations.radianSupport, id: 'uca-amit' },
-    
+
     { user: users.john, company: companies.freshthyme, designation: designations.ftmAdmin, id: 'uca-john' },
     { user: users.sarah, company: companies.freshthyme, designation: designations.ftmCategoryManager, id: 'uca-sarah' },
     { user: users.emily, company: companies.freshthyme, designation: designations.ftmBuyer, id: 'uca-emily' },
-    
+
     { user: users.lisa, company: companies.coke, designation: designations.cokeSalesManager, id: 'uca-lisa' },
     { user: users.mike, company: companies.coke, designation: designations.cokeSalesRep, id: 'uca-mike', relationship: relationships.ftm_coke },
     { user: users.david, company: companies.coke, designation: designations.cokeSalesRep, id: 'uca-david', relationship: relationships.kroger_coke },
-    
+
     { user: users.amy, company: companies.kehe, designation: designations.keheAdmin, id: 'uca-amy' },
     { user: users.james, company: companies.kehe, designation: designations.keheCoordinator, id: 'uca-james' },
-    
+
     // Tom's supplier relationships - brokers represent suppliers and can manage their deals
     { user: users.tom, company: companies.abcBrokers, designation: designations.abcDealCoordinator, id: 'uca-tom-1', relationship: relationships.abc_coke },
     { user: users.tom, company: companies.abcBrokers, designation: designations.abcDealCoordinator, id: 'uca-tom-2', relationship: relationships.abc_kehe },
     { user: users.tom, company: companies.abcBrokers, designation: designations.abcDealCoordinator, id: 'uca-tom-3', relationship: relationships.abc_belvita },
-    
+
     { user: users.bob, company: companies.freshthyme, designation: designations.ftmBuyer, id: 'uca-bob-1' },
     { user: users.bob, company: companies.coke, designation: designations.cokeSalesRep, id: 'uca-bob-2', relationship: relationships.ftm_coke },
   ];
@@ -725,39 +539,6 @@ async function main() {
   console.log(`✅ Created ${assignments.length} user company assignments`);
 
   // ==================== DEAL TYPES & PHASES ====================
-  // First, delete old deal types that are no longer needed
-  await prisma.dealHistory.deleteMany({
-    where: {
-      deal: {
-        dealType: {
-          dealTypeId: { in: ['deal-type-po', 'deal-type-contract', 'deal-type-promo'] }
-        }
-      }
-    }
-  });
-  await prisma.dealParticipant.deleteMany({
-    where: {
-      deal: {
-        dealType: {
-          dealTypeId: { in: ['deal-type-po', 'deal-type-contract', 'deal-type-promo'] }
-        }
-      }
-    }
-  });
-  await prisma.deal.deleteMany({
-    where: {
-      dealType: {
-        dealTypeId: { in: ['deal-type-po', 'deal-type-contract', 'deal-type-promo'] }
-      }
-    }
-  });
-  await prisma.dealPhase.deleteMany({
-    where: { dealTypeId: { in: ['deal-type-po', 'deal-type-contract', 'deal-type-promo'] } }
-  });
-  await prisma.dealType.deleteMany({
-    where: { dealTypeId: { in: ['deal-type-po', 'deal-type-contract', 'deal-type-promo'] } }
-  });
-
   const dealTypes = {
     fundedPromotion: await prisma.dealType.upsert({
       where: { dealTypeId: 'deal-type-funded-promo' },

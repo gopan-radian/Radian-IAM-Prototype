@@ -1,282 +1,119 @@
 /**
- * Permission Configuration
+ * Permission Configuration (Simplified)
  *
- * This file is the single source of truth for:
- * 1. Permission definitions
- * 2. Permission dependencies (what permissions require other permissions)
- * 3. Permission bundles (pre-defined groups for easy assignment)
- * 4. UI element permission mappings
+ * Two-level access control:
+ * 1. SERVICES - Company-level: Which apps/features a company has access to
+ * 2. PERMISSIONS - Role-level: What actions users with that role can perform
  *
- * The backend stores permissions and enforces them at the API level.
- * The frontend uses this config to show/hide UI elements based on user permissions.
+ * Flow:
+ * - Company must have service enabled (e.g., deal_portal)
+ * - User's role determines what they can do within that service
  */
 
 // =============================================================================
-// PERMISSION DEFINITIONS
+// SERVICES (Company-Level Access)
+// =============================================================================
+
+export const SERVICES = {
+  deal_portal: {
+    name: 'Deal Portal',
+    description: 'Access to create, manage, and process deals',
+  },
+  reports: {
+    name: 'Reports',
+    description: 'Access to view and export reports',
+  },
+  analytics: {
+    name: 'Analytics',
+    description: 'Access to analytics dashboards',
+  },
+  user_management: {
+    name: 'User Management',
+    description: 'Ability to manage users within the company',
+  },
+} as const;
+
+export type ServiceKey = keyof typeof SERVICES;
+
+// =============================================================================
+// PERMISSIONS (Role-Level Access)
 // =============================================================================
 
 export const PERMISSIONS = {
-  // DEALS - Basic
-  'deals.view': { description: 'View deals', category: 'DEALS' },
-  'deals.create': { description: 'Create new deals (Supplier)', category: 'DEALS' },
-  'deals.edit': { description: 'Edit existing deals', category: 'DEALS' },
-  'deals.delete': { description: 'Delete deals', category: 'DEALS' },
-
-  // DEALS - Workflow (Supplier actions)
-  'deals.submit': { description: 'Submit deals for review (Supplier)', category: 'DEALS' },
-
-  // DEALS - Workflow (Merchant actions)
-  'deals.review': { description: 'Review submitted deals (Merchant)', category: 'DEALS' },
-  'deals.approve': { description: 'Approve deals (Merchant)', category: 'DEALS' },
-  'deals.reject': { description: 'Reject deals (Merchant)', category: 'DEALS' },
-  'deals.request_changes': { description: 'Request changes on deals (Merchant)', category: 'DEALS' },
+  // DEALS
+  'deals.view': { name: 'View Deals', description: 'View deals', category: 'DEALS' },
+  'deals.create': { name: 'Create Deals', description: 'Create new deals', category: 'DEALS' },
+  'deals.edit': { name: 'Edit Deals', description: 'Edit existing deals', category: 'DEALS' },
+  'deals.delete': { name: 'Delete Deals', description: 'Delete deals', category: 'DEALS' },
+  'deals.submit': { name: 'Submit Deals', description: 'Submit deals for review', category: 'DEALS' },
+  'deals.review': { name: 'Review Deals', description: 'Review submitted deals', category: 'DEALS' },
+  'deals.approve': { name: 'Approve Deals', description: 'Approve deals', category: 'DEALS' },
+  'deals.reject': { name: 'Reject Deals', description: 'Reject deals', category: 'DEALS' },
 
   // REPORTS
-  'reports.view': { description: 'View reports', category: 'REPORTS' },
-  'reports.export': { description: 'Export reports to CSV/PDF', category: 'REPORTS' },
+  'reports.view': { name: 'View Reports', description: 'View reports', category: 'REPORTS' },
+  'reports.export': { name: 'Export Reports', description: 'Export reports to CSV/PDF', category: 'REPORTS' },
 
   // USERS
-  'users.view': { description: 'View users in company', category: 'USERS' },
-  'users.invite': { description: 'Invite new users', category: 'USERS' },
-  'users.manage': { description: 'Edit/deactivate users', category: 'USERS' },
+  'users.view': { name: 'View Users', description: 'View users in company', category: 'USERS' },
+  'users.invite': { name: 'Invite Users', description: 'Invite new users', category: 'USERS' },
+  'users.manage': { name: 'Manage Users', description: 'Edit/deactivate users', category: 'USERS' },
 
   // SETTINGS
-  'roles.view': { description: 'View roles', category: 'SETTINGS' },
-  'roles.manage': { description: 'Create/edit roles', category: 'SETTINGS' },
-  'company.settings': { description: 'Manage company settings', category: 'SETTINGS' },
+  'roles.view': { name: 'View Roles', description: 'View roles', category: 'SETTINGS' },
+  'roles.manage': { name: 'Manage Roles', description: 'Create/edit roles', category: 'SETTINGS' },
+  'company.settings': { name: 'Company Settings', description: 'Manage company settings', category: 'SETTINGS' },
 
   // ADMIN (Radian only)
-  'admin.companies': { description: 'Manage all companies', category: 'ADMIN' },
-  'admin.company_permissions': { description: 'Grant permissions to companies', category: 'ADMIN' },
-  'admin.relationships': { description: 'Manage company relationships', category: 'ADMIN' },
+  'admin.companies': { name: 'Manage Companies', description: 'Manage all companies', category: 'ADMIN' },
+  'admin.services': { name: 'Manage Services', description: 'Grant services to companies', category: 'ADMIN' },
+  'admin.relationships': { name: 'Manage Relationships', description: 'Manage company relationships', category: 'ADMIN' },
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;
 
 // =============================================================================
-// PERMISSION DEPENDENCIES
+// PERMISSION CATEGORIES
 // =============================================================================
 
-/**
- * When assigning a permission, these dependencies are automatically included.
- * Example: If you assign 'deals.create', 'deals.view' is auto-included.
- */
-export const PERMISSION_DEPENDENCIES: Partial<Record<PermissionKey, PermissionKey[]>> = {
-  // Deals - you need to view before you can do anything else
-  'deals.create': ['deals.view'],
-  'deals.edit': ['deals.view'],
-  'deals.delete': ['deals.view'],
-  'deals.submit': ['deals.view', 'deals.create'], // Submit requires create
-
-  // Deals - Merchant workflow (all require view)
-  'deals.review': ['deals.view'],
-  'deals.approve': ['deals.view', 'deals.review'], // Approve requires review
-  'deals.reject': ['deals.view', 'deals.review'], // Reject requires review
-  'deals.request_changes': ['deals.view', 'deals.review'], // Request changes requires review
-
-  // Reports
-  'reports.export': ['reports.view'],
-
-  // Users - invite/manage require viewing
-  'users.invite': ['users.view'],
-  'users.manage': ['users.view'],
-
-  // Settings - managing requires viewing
-  'roles.manage': ['roles.view'],
-
-  // Admin dependencies
-  'admin.company_permissions': ['admin.companies'],
-  'admin.relationships': ['admin.companies'],
-};
-
-/**
- * Get all required permissions for a given permission (recursive)
- */
-export function getRequiredPermissions(permission: PermissionKey): PermissionKey[] {
-  const required = new Set<PermissionKey>();
-  const stack = [permission];
-
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-    const deps = PERMISSION_DEPENDENCIES[current];
-    if (deps) {
-      for (const dep of deps) {
-        if (!required.has(dep)) {
-          required.add(dep);
-          stack.push(dep);
-        }
-      }
-    }
-  }
-
-  return Array.from(required);
-}
-
-/**
- * Expand permissions to include all dependencies
- */
-export function expandPermissions(permissions: PermissionKey[]): PermissionKey[] {
-  const expanded = new Set<PermissionKey>(permissions);
-
-  for (const perm of permissions) {
-    const deps = getRequiredPermissions(perm);
-    deps.forEach((dep) => expanded.add(dep));
-  }
-
-  return Array.from(expanded);
-}
-
-// =============================================================================
-// PERMISSION BUNDLES
-// =============================================================================
-
-/**
- * Pre-defined permission bundles for common use cases.
- * These are Radian-defined and available to all companies.
- */
-export const PERMISSION_BUNDLES = {
-  // Viewer bundles - read-only access
-  'viewer.deals': {
-    name: 'Deal Viewer',
-    description: 'Can view deals and related information',
-    permissions: ['deals.view'] as PermissionKey[],
-  },
-  'viewer.reports': {
-    name: 'Report Viewer',
-    description: 'Can view reports',
-    permissions: ['reports.view'] as PermissionKey[],
-  },
-  'viewer.full': {
-    name: 'Full Viewer',
-    description: 'Read-only access to deals, reports, and users',
-    permissions: ['deals.view', 'reports.view', 'users.view'] as PermissionKey[],
-  },
-
-  // Deal management bundles - Supplier
-  'deals.supplier_contributor': {
-    name: 'Supplier - Deal Contributor',
-    description: 'Can create, edit and submit deals (Supplier)',
-    permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.submit'] as PermissionKey[],
-  },
-  'deals.supplier_admin': {
-    name: 'Supplier - Deal Admin',
-    description: 'Full supplier deal management including deletion',
-    permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.submit'] as PermissionKey[],
-  },
-
-  // Deal management bundles - Merchant
-  'deals.merchant_reviewer': {
-    name: 'Merchant - Deal Reviewer',
-    description: 'Can review and request changes on deals (Merchant)',
-    permissions: ['deals.view', 'deals.review', 'deals.request_changes'] as PermissionKey[],
-  },
-  'deals.merchant_approver': {
-    name: 'Merchant - Deal Approver',
-    description: 'Can review, approve, and reject deals (Merchant)',
-    permissions: ['deals.view', 'deals.review', 'deals.approve', 'deals.reject', 'deals.request_changes'] as PermissionKey[],
-  },
-
-  // Legacy bundles (backward compatibility)
-  'deals.contributor': {
-    name: 'Deal Contributor',
-    description: 'Can create and edit deals',
-    permissions: ['deals.view', 'deals.create', 'deals.edit'] as PermissionKey[],
-  },
-  'deals.manager': {
-    name: 'Deal Manager',
-    description: 'Full deal management including approval',
-    permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.submit', 'deals.review', 'deals.approve'] as PermissionKey[],
-  },
-  'deals.admin': {
-    name: 'Deal Admin',
-    description: 'Full deal management including deletion',
-    permissions: ['deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.submit', 'deals.review', 'deals.approve', 'deals.reject', 'deals.request_changes'] as PermissionKey[],
-  },
-
-  // User management bundles
-  'users.inviter': {
-    name: 'User Inviter',
-    description: 'Can view and invite users',
-    permissions: ['users.view', 'users.invite'] as PermissionKey[],
-  },
-  'users.manager': {
-    name: 'User Manager',
-    description: 'Full user management',
-    permissions: ['users.view', 'users.invite', 'users.manage'] as PermissionKey[],
-  },
-
-  // Role-based bundles (common combinations)
-  'role.basic': {
-    name: 'Basic User',
-    description: 'View deals and reports',
-    permissions: ['deals.view', 'reports.view'] as PermissionKey[],
-  },
-  'role.standard': {
-    name: 'Standard User',
-    description: 'Create deals, view reports',
-    permissions: ['deals.view', 'deals.create', 'reports.view'] as PermissionKey[],
-  },
-  'role.power': {
-    name: 'Power User',
-    description: 'Full deal and report access',
-    permissions: [
-      'deals.view', 'deals.create', 'deals.edit', 'deals.approve',
-      'reports.view', 'reports.export',
-    ] as PermissionKey[],
-  },
-  'role.admin': {
-    name: 'Company Admin',
-    description: 'Full access to deals, reports, users, and settings',
-    permissions: [
-      'deals.view', 'deals.create', 'deals.edit', 'deals.delete', 'deals.approve',
-      'reports.view', 'reports.export',
-      'users.view', 'users.invite', 'users.manage',
-      'roles.view', 'roles.manage',
-      'company.settings',
-    ] as PermissionKey[],
-  },
-
-  // Radian-specific bundles
-  'radian.support': {
-    name: 'Radian Support',
-    description: 'Support specialist access',
-    permissions: ['deals.view', 'reports.view', 'users.view'] as PermissionKey[],
-  },
-  'radian.account_manager': {
-    name: 'Radian Account Manager',
-    description: 'Account manager with admin capabilities',
-    permissions: [
-      'deals.view', 'deals.create', 'deals.edit', 'deals.approve',
-      'reports.view', 'reports.export',
-      'users.view', 'users.invite',
-      'admin.companies', 'admin.company_permissions', 'admin.relationships',
-    ] as PermissionKey[],
-  },
-  'radian.super_admin': {
-    name: 'Radian Super Admin',
-    description: 'Full system access',
-    permissions: Object.keys(PERMISSIONS) as PermissionKey[],
-  },
+export const PERMISSION_CATEGORIES = {
+  DEALS: { name: 'Deals', description: 'Deal management permissions' },
+  REPORTS: { name: 'Reports', description: 'Report access permissions' },
+  USERS: { name: 'Users', description: 'User management permissions' },
+  SETTINGS: { name: 'Settings', description: 'Company settings permissions' },
+  ADMIN: { name: 'Admin', description: 'Radian admin permissions' },
 } as const;
 
-export type BundleKey = keyof typeof PERMISSION_BUNDLES;
+export type PermissionCategory = keyof typeof PERMISSION_CATEGORIES;
+
+// =============================================================================
+// SERVICE TO PERMISSION MAPPING
+// =============================================================================
 
 /**
- * Get permissions for a bundle (with dependencies expanded)
+ * Maps services to the permissions they unlock.
+ * A company must have the service enabled for users to use these permissions.
  */
-export function getBundlePermissions(bundleKey: BundleKey): PermissionKey[] {
-  const bundle = PERMISSION_BUNDLES[bundleKey];
-  return expandPermissions(bundle.permissions);
-}
+export const SERVICE_PERMISSIONS: Record<ServiceKey, PermissionKey[]> = {
+  deal_portal: [
+    'deals.view',
+    'deals.create',
+    'deals.edit',
+    'deals.delete',
+    'deals.submit',
+    'deals.review',
+    'deals.approve',
+    'deals.reject',
+  ],
+  reports: ['reports.view', 'reports.export'],
+  analytics: [], // Future permissions
+  user_management: ['users.view', 'users.invite', 'users.manage'],
+};
 
 // =============================================================================
 // UI PERMISSION MAPPING
 // =============================================================================
 
-/**
- * Maps UI elements to required permissions.
- * Components use this to determine what to show/hide.
- */
 export const UI_PERMISSIONS = {
   // Navigation / Pages
   pages: {
@@ -287,12 +124,12 @@ export const UI_PERMISSIONS = {
     '/deals/[id]/edit': 'deals.edit',
     '/reports': 'reports.view',
     '/reports/export': 'reports.export',
-    '/settings': null, // Settings page always visible, sub-items controlled
+    '/settings': null,
     '/settings/users': 'users.view',
     '/settings/roles': 'roles.view',
     '/settings/company': 'company.settings',
     '/admin/companies': 'admin.companies',
-    '/admin/company-permissions': 'admin.company_permissions',
+    '/admin/services': 'admin.services',
     '/admin/relationships': 'admin.relationships',
   },
 
@@ -307,7 +144,7 @@ export const UI_PERMISSIONS = {
     'settings.company': 'company.settings',
     admin: 'admin.companies',
     'admin.companies': 'admin.companies',
-    'admin.permissions': 'admin.company_permissions',
+    'admin.services': 'admin.services',
     'admin.relationships': 'admin.relationships',
   },
 
@@ -320,7 +157,6 @@ export const UI_PERMISSIONS = {
     'deals.review': 'deals.review',
     'deals.approve': 'deals.approve',
     'deals.reject': 'deals.reject',
-    'deals.request_changes': 'deals.request_changes',
     'reports.export': 'reports.export',
     'users.invite': 'users.invite',
     'users.edit': 'users.manage',
@@ -331,7 +167,6 @@ export const UI_PERMISSIONS = {
   },
 } as const;
 
-// Type helpers for UI permissions
 export type PagePath = keyof typeof UI_PERMISSIONS.pages;
 export type SidebarItem = keyof typeof UI_PERMISSIONS.sidebar;
 export type ActionKey = keyof typeof UI_PERMISSIONS.actions;
@@ -343,10 +178,7 @@ export type ActionKey = keyof typeof UI_PERMISSIONS.actions;
 /**
  * Check if user has permission for a page
  */
-export function canAccessPage(
-  userPermissions: string[],
-  page: PagePath
-): boolean {
+export function canAccessPage(userPermissions: string[], page: PagePath): boolean {
   const required = UI_PERMISSIONS.pages[page];
   if (required === null) return true;
   return userPermissions.includes(required);
@@ -355,10 +187,7 @@ export function canAccessPage(
 /**
  * Check if user can see a sidebar item
  */
-export function canSeeSidebarItem(
-  userPermissions: string[],
-  item: SidebarItem
-): boolean {
+export function canSeeSidebarItem(userPermissions: string[], item: SidebarItem): boolean {
   const required = UI_PERMISSIONS.sidebar[item];
   if (required === null) return true;
   return userPermissions.includes(required);
@@ -367,10 +196,7 @@ export function canSeeSidebarItem(
 /**
  * Check if user can perform an action
  */
-export function canPerformAction(
-  userPermissions: string[],
-  action: ActionKey
-): boolean {
+export function canPerformAction(userPermissions: string[], action: ActionKey): boolean {
   const required = UI_PERMISSIONS.actions[action];
   return userPermissions.includes(required);
 }
@@ -412,4 +238,27 @@ export function hasAllPermissions(userPermissions: string[], required: Permissio
  */
 export function hasAnyPermission(userPermissions: string[], required: PermissionKey[]): boolean {
   return required.some((perm) => userPermissions.includes(perm));
+}
+
+/**
+ * Get permissions by category
+ */
+export function getPermissionsByCategory(category: PermissionCategory): PermissionKey[] {
+  return (Object.keys(PERMISSIONS) as PermissionKey[]).filter(
+    (key) => PERMISSIONS[key].category === category
+  );
+}
+
+/**
+ * Get all permission keys
+ */
+export function getAllPermissionKeys(): PermissionKey[] {
+  return Object.keys(PERMISSIONS) as PermissionKey[];
+}
+
+/**
+ * Get all service keys
+ */
+export function getAllServiceKeys(): ServiceKey[] {
+  return Object.keys(SERVICES) as ServiceKey[];
 }

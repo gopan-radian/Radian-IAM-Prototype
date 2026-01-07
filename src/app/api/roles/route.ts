@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { canAdminAssignPermissions, expandPermissionIds } from '@/lib/permissions';
 
 // GET - List roles (designations) for a company
 export async function GET(request: NextRequest) {
@@ -46,15 +45,14 @@ export async function GET(request: NextRequest) {
 }
 
 // POST - Create a new role for a company
-// Enforces that admin can only assign permissions they have
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId, designationName, permissionIds, adminUserId } = body as {
+    const { companyId, designationName, designationDescription, permissionIds } = body as {
       companyId: string;
       designationName: string;
+      designationDescription?: string;
       permissionIds?: string[];
-      adminUserId?: string;
     };
 
     if (!companyId || !designationName) {
@@ -74,47 +72,6 @@ export async function POST(request: NextRequest) {
         { error: 'Company not found' },
         { status: 404 }
       );
-    }
-
-    // Get company's available permissions
-    const availablePermissions = await prisma.companyAvailablePermission.findMany({
-      where: { companyId },
-    });
-    const availablePermissionIds = new Set(availablePermissions.map((p) => p.permissionId));
-
-    // Expand permissions to include dependencies
-    let expandedPermissionIds: string[] = [];
-    if (permissionIds && permissionIds.length > 0) {
-      expandedPermissionIds = await expandPermissionIds(permissionIds);
-
-      // Validate that all expanded permissions are available to this company
-      for (const permId of expandedPermissionIds) {
-        if (!availablePermissionIds.has(permId)) {
-          return NextResponse.json(
-            { error: 'One or more permissions (including required dependencies) are not available to this company' },
-            { status: 400 }
-          );
-        }
-      }
-
-      // If adminUserId provided, enforce that admin has all permissions they're assigning
-      if (adminUserId) {
-        const { allowed, forbidden } = await canAdminAssignPermissions(
-          adminUserId,
-          companyId,
-          expandedPermissionIds
-        );
-
-        if (!allowed) {
-          return NextResponse.json(
-            {
-              error: 'You cannot assign permissions you do not have',
-              forbidden,
-            },
-            { status: 403 }
-          );
-        }
-      }
     }
 
     // Check for duplicate role name
@@ -139,14 +96,15 @@ export async function POST(request: NextRequest) {
         data: {
           companyId,
           designationName,
+          designationDescription,
           designationStatus: 'ACTIVE',
         },
       });
 
-      // Add expanded permissions (includes dependencies)
-      if (expandedPermissionIds.length > 0) {
+      // Add permissions
+      if (permissionIds && permissionIds.length > 0) {
         await tx.designationPermission.createMany({
-          data: expandedPermissionIds.map((permissionId: string) => ({
+          data: permissionIds.map((permissionId: string) => ({
             designationId: role.designationId,
             permissionId,
           })),
